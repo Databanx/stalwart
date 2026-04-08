@@ -349,15 +349,31 @@ impl EmailQuery for Server {
             )
             .await?;
 
+        let collapse_threads = request.arguments.collapse_threads.unwrap_or(false);
+
+        let total_results = if collapse_threads {
+            let mut unique_threads = AHashSet::new();
+            for &document_id in &results {
+                if let Some(thread_id) = cached_messages
+                    .email_by_id(&document_id)
+                    .map(|email| email.thread_id)
+                {
+                    unique_threads.insert(thread_id);
+                }
+            }
+            unique_threads.len()
+        } else {
+            results.len()
+        };
+
         let mut response = QueryResponseBuilder::new(
-            results.len(),
+            total_results,
             self.core.jmap.query_max_results,
             cached_messages.get_state(false),
             &request,
         );
 
         if !results.is_empty() {
-            let collapse_threads = request.arguments.collapse_threads.unwrap_or(false);
             let mut seen_thread_ids = AHashSet::new();
 
             for document_id in results {

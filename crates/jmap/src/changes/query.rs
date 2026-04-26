@@ -10,7 +10,7 @@ use crate::{
     calendar_event_notification::query::CalendarEventNotificationQuery,
     contact::query::ContactCardQuery, email::query::EmailQuery, file::query::FileNodeQuery,
     mailbox::query::MailboxQuery, share_notification::query::ShareNotificationQuery,
-    sieve::query::SieveScriptQuery, submission::query::EmailSubmissionQuery,
+    submission::query::EmailSubmissionQuery,
 };
 use common::{Server, auth::AccessToken};
 use jmap_proto::{
@@ -71,7 +71,7 @@ impl QueryChanges for Server {
                         .as_ref()
                         .is_some_and(|sort| sort.iter().any(|s| !s.is_immutable()));
 
-                results = self.email_query(request.into(), access_token).await?;
+                results = self.email_query((*request).into(), access_token).await?;
             }
             QueryChangesRequestMethod::Mailbox(mut request) => {
                 // Query changes
@@ -93,7 +93,7 @@ impl QueryChanges for Server {
                 }
 
                 up_to_id = request.up_to_id;
-                results = self.mailbox_query(request.into(), access_token).await?;
+                results = self.mailbox_query((*request).into(), access_token).await?;
             }
             QueryChangesRequestMethod::EmailSubmission(mut request) => {
                 // Query changes
@@ -115,29 +115,7 @@ impl QueryChanges for Server {
                 }
 
                 up_to_id = request.up_to_id;
-                results = self.email_submission_query(request.into()).await?;
-            }
-            QueryChangesRequestMethod::Sieve(mut request) => {
-                // Query changes
-                set_account_id_if_missing(&mut request.account_id, access_token);
-                changes = self
-                    .changes(
-                        build_changes_request(&request),
-                        MethodObject::SieveScript,
-                        access_token,
-                    )
-                    .await?
-                    .response;
-                let calculate_total = request.calculate_total.unwrap_or(false);
-                has_changes = changes.has_changes();
-                response = build_query_changes_response(&request, &changes);
-
-                if !has_changes && !calculate_total {
-                    return Ok(response);
-                }
-
-                up_to_id = request.up_to_id;
-                results = self.sieve_script_query(request.into()).await?;
+                results = self.email_submission_query((*request).into()).await?;
             }
             QueryChangesRequestMethod::ContactCard(mut request) => {
                 // Query changes
@@ -160,7 +138,7 @@ impl QueryChanges for Server {
 
                 up_to_id = request.up_to_id;
                 results = self
-                    .contact_card_query(request.into(), access_token)
+                    .contact_card_query((*request).into(), access_token)
                     .await?;
             }
             QueryChangesRequestMethod::FileNode(mut request) => {
@@ -183,7 +161,7 @@ impl QueryChanges for Server {
                 }
 
                 up_to_id = request.up_to_id;
-                results = self.file_node_query(request.into(), access_token).await?;
+                results = self.file_node_query((*request).into(), access_token).await?;
             }
             QueryChangesRequestMethod::CalendarEvent(mut request) => {
                 // Query changes
@@ -206,7 +184,7 @@ impl QueryChanges for Server {
 
                 up_to_id = request.up_to_id;
                 results = self
-                    .calendar_event_query(request.into(), access_token)
+                    .calendar_event_query((*request).into(), access_token)
                     .await?;
             }
             QueryChangesRequestMethod::CalendarEventNotification(mut request) => {
@@ -230,7 +208,7 @@ impl QueryChanges for Server {
 
                 up_to_id = request.up_to_id;
                 results = self
-                    .calendar_event_notification_query(request.into(), access_token)
+                    .calendar_event_notification_query((*request).into(), access_token)
                     .await?;
             }
             QueryChangesRequestMethod::ShareNotification(mut request) => {
@@ -253,7 +231,7 @@ impl QueryChanges for Server {
                 }
 
                 up_to_id = request.up_to_id;
-                results = self.share_notification_query(request.into()).await?;
+                results = self.share_notification_query((*request).into()).await?;
             }
             QueryChangesRequestMethod::Principal(_) => {
                 return Err(trc::JmapEvent::CannotCalculateChanges.into_err());

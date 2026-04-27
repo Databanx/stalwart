@@ -1010,6 +1010,7 @@ pub enum Property {
     Size = 64,
     SkipFirst = 423,
     SmtpGreeting = 552,
+    SnippetConcurrency = 875,
     SnippetMaxResults = 441,
     SocketBacklog = 591,
     SocketNoDelay = 592,

@@ -237,16 +237,17 @@ impl RegistryStore {
     }
 
     pub async fn refresh_node_id_lease(&self) -> trc::Result<()> {
+        // No assert_value: the slot is empty only on initial allocation, and
+        // every subsequent refresh writes over a non-empty value. A node is
+        // the sole writer to its own NodeId key, so the set is race-free.
         let mut batch = BatchBuilder::new();
-        batch
-            .assert_value(ValueClass::NodeId(self.0.node_id), ())
-            .set(
-                ValueClass::NodeId(self.0.node_id),
-                KeySerializer::new(self.0.env_hostname.len() + U64_LEN)
-                    .write(now())
-                    .write(&self.0.env_hostname)
-                    .finalize(),
-            );
+        batch.set(
+            ValueClass::NodeId(self.0.node_id),
+            KeySerializer::new(self.0.env_hostname.len() + U64_LEN)
+                .write(now())
+                .write(&self.0.env_hostname)
+                .finalize(),
+        );
         self.0
             .store
             .write(batch.build_all())

@@ -1043,6 +1043,7 @@ pub enum Property {
     SkipDeploy = 885,
     SkipFirst = 423,
     SmtpGreeting = 552,
+    SnippetConcurrency = 916,
     SnippetMaxResults = 441,
     SocketBacklog = 591,
     SocketNoDelay = 592,

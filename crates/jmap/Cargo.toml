@@ -60,3 +60,6 @@ enterprise = []
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+tokio = { version = "1.47", features = ["rt", "macros", "time", "test-util"] }

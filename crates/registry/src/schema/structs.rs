@@ -3107,6 +3107,8 @@ pub struct Jmap {
     pub set_max_objects: u64,
     #[serde(rename = "snippetMaxResults")]
     pub snippet_max_results: u64,
+    #[serde(rename = "snippetConcurrency")]
+    pub snippet_concurrency: u64,
     #[serde(rename = "maxConcurrentUploads")]
     pub max_concurrent_uploads: Option<u64>,
     #[serde(rename = "maxUploadSize")]

@@ -1208,6 +1208,7 @@ impl EnumImpl for Property {
             b"skipDeploy" => Property::SkipDeploy,
             b"skipFirst" => Property::SkipFirst,
             b"smtpGreeting" => Property::SmtpGreeting,
+            b"snippetConcurrency" => Property::SnippetConcurrency,
             b"snippetMaxResults" => Property::SnippetMaxResults,
             b"socketBacklog" => Property::SocketBacklog,
             b"socketNoDelay" => Property::SocketNoDelay,
@@ -2143,6 +2144,7 @@ impl EnumImpl for Property {
             Property::SkipDeploy => "skipDeploy",
             Property::SkipFirst => "skipFirst",
             Property::SmtpGreeting => "smtpGreeting",
+            Property::SnippetConcurrency => "snippetConcurrency",
             Property::SnippetMaxResults => "snippetMaxResults",
             Property::SocketBacklog => "socketBacklog",
             Property::SocketNoDelay => "socketNoDelay",
@@ -3083,6 +3085,7 @@ impl EnumImpl for Property {
             423 => Some(Property::SkipFirst),
             552 => Some(Property::SmtpGreeting),
             441 => Some(Property::SnippetMaxResults),
+            930 => Some(Property::SnippetConcurrency),
             591 => Some(Property::SocketBacklog),
             592 => Some(Property::SocketNoDelay),
             593 => Some(Property::SocketReceiveBufferSize),
@@ -3215,7 +3218,7 @@ impl EnumImpl for Property {
         }
     }
 
-    const COUNT: usize = 930;
+    const COUNT: usize = 931;
 }
 
 impl serde::Serialize for Property {

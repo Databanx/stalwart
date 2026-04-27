@@ -13,6 +13,7 @@ use store::registry::bootstrap::Bootstrap;
 pub struct JmapConfig {
     pub query_max_results: usize,
     pub snippet_max_results: usize,
+    pub snippet_concurrency: usize,
     pub changes_max_results: usize,
 
     pub request_max_size: usize,
@@ -57,6 +58,7 @@ impl JmapConfig {
             query_max_results: jmap.query_max_results as usize,
             changes_max_results: jmap.changes_max_results as usize,
             snippet_max_results: jmap.snippet_max_results as usize,
+            snippet_concurrency: jmap.snippet_concurrency as usize,
             request_max_size: jmap.max_request_size as usize,
             request_max_calls: jmap.max_method_calls as usize,
             request_max_concurrent: jmap.max_concurrent_requests,

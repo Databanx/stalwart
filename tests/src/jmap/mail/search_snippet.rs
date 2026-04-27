@@ -168,6 +168,71 @@ pub async fn test(test: &TestServer) {
         );
     }
 
+    // Mixed found/not_found pass: combine real and fabricated email IDs in a
+    // single SearchSnippet/get call. Asserts via lookup map (not by index)
+    // because the implementation now fans out blob fetches concurrently and
+    // the response order is unspecified by the JMAP spec.
+    {
+        let real_ids: Vec<String> = email_ids.values().cloned().collect();
+        let bogus_ids = [
+            Id::new(0xDEAD_BEEF).to_string(),
+            Id::new(0xCAFE_BABE).to_string(),
+        ];
+        let all_ids: Vec<String> = real_ids
+            .iter()
+            .cloned()
+            .chain(bogus_ids.iter().cloned())
+            .collect();
+
+        let mut request = client.build();
+        request
+            .get_search_snippet()
+            .filter(Filter::body("friend"))
+            .email_ids(all_ids.iter().cloned());
+        let response = request
+            .send()
+            .await
+            .unwrap()
+            .unwrap_method_responses()
+            .pop()
+            .unwrap()
+            .unwrap_get_search_snippet()
+            .unwrap();
+
+        let listed_ids: AHashMap<&str, ()> = response
+            .list()
+            .iter()
+            .map(|s| (s.email_id(), ()))
+            .collect();
+        assert_eq!(
+            listed_ids.len(),
+            real_ids.len(),
+            "list size: got {:?}",
+            response.list().iter().map(|s| s.email_id()).collect::<Vec<_>>(),
+        );
+        for id in &real_ids {
+            assert!(
+                listed_ids.contains_key(id.as_str()),
+                "expected {} in list, got {:?}",
+                id,
+                response.list().iter().map(|s| s.email_id()).collect::<Vec<_>>(),
+            );
+        }
+
+        let not_found = response.not_found().unwrap_or_default();
+        let not_found_set: AHashMap<&str, ()> =
+            not_found.iter().map(|s| (s.as_str(), ())).collect();
+        assert_eq!(not_found_set.len(), bogus_ids.len(), "notFound: {:?}", not_found);
+        for id in &bogus_ids {
+            assert!(
+                not_found_set.contains_key(id.as_str()),
+                "expected {} in notFound, got {:?}",
+                id,
+                not_found,
+            );
+        }
+    }
+
     // Destroy test data
     test.destroy_all_mailboxes(account).await;
     test.assert_is_empty().await;

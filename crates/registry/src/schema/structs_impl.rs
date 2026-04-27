@@ -22851,6 +22851,10 @@ impl ObjectImpl for Jmap {
         if *value < 1 {
             errors.push(ValidationError::min_value(Property::SnippetMaxResults, 1));
         }
+        let value = &self.snippet_concurrency;
+        if *value < 1 {
+            errors.push(ValidationError::min_value(Property::SnippetConcurrency, 1));
+        }
         if let Some(value) = &self.max_concurrent_uploads {
             if *value < 1 {
                 errors.push(ValidationError::min_value(
@@ -22929,6 +22933,7 @@ impl Pickle for Jmap {
         self.max_subscriptions.pickle(out);
         self.web_push_key.pickle(out);
         self.web_push_contact.pickle(out);
+        self.snippet_concurrency.pickle(out);
     }
 
     fn unpickle(stream: &mut crate::pickle::PickledStream<'_>) -> Option<Self> {
@@ -22967,6 +22972,9 @@ impl Pickle for Jmap {
         if stream.version() >= 1 {
             this.web_push_contact = Pickle::unpickle(stream)?;
         }
+        // Fork-only field, always pickled last. Default to 8 when missing so
+        // pickled streams written before this field existed still round-trip.
+        this.snippet_concurrency = Pickle::unpickle(stream).unwrap_or(8u64);
         Some(this)
     }
 }
@@ -22985,6 +22993,7 @@ impl Default for Jmap {
             max_request_size: 10000000u64,
             set_max_objects: 500u64,
             snippet_max_results: 100u64,
+            snippet_concurrency: 8u64,
             max_concurrent_uploads: Some(4u64),
             max_upload_size: 50000000u64,
             max_upload_count: 1000u64,
@@ -23010,7 +23019,7 @@ impl Default for Jmap {
 
 impl IntoValue for Jmap {
     fn into_value(self) -> JmapValue<'static> {
-        let mut map = jmap_tools::Map::with_capacity(32);
+        let mut map = jmap_tools::Map::with_capacity(33);
         map.insert_unchecked(
             Property::ParseLimitEvent,
             self.parse_limit_event.into_value(),
@@ -23042,6 +23051,10 @@ impl IntoValue for Jmap {
         map.insert_unchecked(
             Property::SnippetMaxResults,
             self.snippet_max_results.into_value(),
+        );
+        map.insert_unchecked(
+            Property::SnippetConcurrency,
+            self.snippet_concurrency.into_value(),
         );
         map.insert_unchecked(
             Property::MaxConcurrentUploads,
@@ -23119,6 +23132,7 @@ impl RegistryJsonPropertyPatch for Jmap {
             Some(Property::MaxRequestSize) => self.max_request_size.patch(pointer, value),
             Some(Property::SetMaxObjects) => self.set_max_objects.patch(pointer, value),
             Some(Property::SnippetMaxResults) => self.snippet_max_results.patch(pointer, value),
+            Some(Property::SnippetConcurrency) => self.snippet_concurrency.patch(pointer, value),
             Some(Property::MaxConcurrentUploads) => {
                 self.max_concurrent_uploads.patch(pointer, value)
             }

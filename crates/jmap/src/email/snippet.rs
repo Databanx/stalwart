@@ -19,6 +19,7 @@ use jmap_proto::{
     object::email::EmailFilter,
     request::IntoValid,
 };
+use futures_util::{StreamExt, TryStreamExt, stream};
 use mail_parser::decoders::html::html_to_text;
 use nlp::language::{Language, search_snippet::generate_snippet, stemmer::Stemmer};
 use std::future::Future;
@@ -28,8 +29,13 @@ use store::{
     write::{AlignedBytes, Archive},
 };
 use trc::AddContext;
-use types::{acl::Acl, collection::Collection, field::EmailField};
+use types::{acl::Acl, collection::Collection, field::EmailField, id::Id};
 use utils::chained_bytes::ChainedBytes;
+
+enum SnippetOutcome {
+    Found(SearchSnippet),
+    NotFound(Id),
+}
 
 pub trait EmailSearchSnippet: Sync + Send {
     fn email_search_snippet(
@@ -115,137 +121,204 @@ impl EmailSearchSnippet for Server {
             return Err(trc::JmapEvent::RequestTooLarge.into_err());
         }
 
-        for email_id in email_ids.into_valid() {
-            let document_id = email_id.document_id();
-            let mut snippet = SearchSnippet {
-                email_id,
-                subject: None,
-                preview: None,
-            };
-            if !document_ids.contains(document_id) {
-                response.not_found.push(email_id);
-                continue;
-            } else if terms.is_empty() {
-                response.list.push(snippet);
-                continue;
-            }
-            let metadata_ = match self
-                .store()
-                .get_value::<Archive<AlignedBytes>>(ValueKey::property(
-                    account_id,
-                    Collection::Email,
-                    document_id,
-                    EmailField::Metadata,
-                ))
-                .await?
-            {
-                Some(metadata) => metadata,
-                None => {
-                    response.not_found.push(email_id);
-                    continue;
+        // Fetch blobs concurrently: each iteration of this loop awaits a
+        // single blob_store get_blob, and serialising them stalls the response
+        // when the blob backend has non-trivial per-request latency.
+        let concurrency = self.core.jmap.snippet_concurrency.max(1);
+        let terms = &terms;
+        let document_ids = &document_ids;
+
+        let outcomes: Vec<SnippetOutcome> = stream::iter(email_ids.into_valid())
+            .map(|email_id| async move {
+                let document_id = email_id.document_id();
+                if !document_ids.contains(document_id) {
+                    return Ok::<_, trc::Error>(SnippetOutcome::NotFound(email_id));
                 }
-            };
-            let metadata = metadata_
-                .unarchive::<MessageMetadata>()
-                .caused_by(trc::location!())?;
 
-            // Add subject snippet
-            let contents = &metadata.contents[0];
-            if let Some(subject) = contents
-                .root_part()
-                .header_value(&MetadataHeaderName::Subject)
-                .and_then(|v| v.as_text())
-                .and_then(|v| generate_snippet(v, &terms, language, is_exact))
-            {
-                snippet.subject = subject.into();
-            }
+                let mut snippet = SearchSnippet {
+                    email_id,
+                    subject: None,
+                    preview: None,
+                };
 
-            // Download message
-            let raw_body = if let Some(raw_body) = self
-                .blob_store()
-                .get_blob(metadata.blob_hash.0.as_slice(), 0..usize::MAX)
-                .await?
-            {
-                raw_body
-            } else {
-                trc::event!(
-                    Store(trc::StoreEvent::NotFound),
-                    AccountId = account_id,
-                    DocumentId = email_id.document_id(),
-                    Collection = Collection::Email,
-                    BlobId = metadata.blob_hash.0.as_slice(),
-                    Details = "Blob not found.",
-                    CausedBy = trc::location!(),
+                if terms.is_empty() {
+                    return Ok(SnippetOutcome::Found(snippet));
+                }
+
+                let metadata_ = match self
+                    .store()
+                    .get_value::<Archive<AlignedBytes>>(ValueKey::property(
+                        account_id,
+                        Collection::Email,
+                        document_id,
+                        EmailField::Metadata,
+                    ))
+                    .await?
+                {
+                    Some(metadata) => metadata,
+                    None => return Ok(SnippetOutcome::NotFound(email_id)),
+                };
+                let metadata = metadata_
+                    .unarchive::<MessageMetadata>()
+                    .caused_by(trc::location!())?;
+
+                // Add subject snippet
+                let contents = &metadata.contents[0];
+                if let Some(subject) = contents
+                    .root_part()
+                    .header_value(&MetadataHeaderName::Subject)
+                    .and_then(|v| v.as_text())
+                    .and_then(|v| generate_snippet(v, terms, language, is_exact))
+                {
+                    snippet.subject = subject.into();
+                }
+
+                // Download message
+                let raw_body = if let Some(raw_body) = self
+                    .blob_store()
+                    .get_blob(metadata.blob_hash.0.as_slice(), 0..usize::MAX)
+                    .await?
+                {
+                    raw_body
+                } else {
+                    trc::event!(
+                        Store(trc::StoreEvent::NotFound),
+                        AccountId = account_id,
+                        DocumentId = email_id.document_id(),
+                        Collection = Collection::Email,
+                        BlobId = metadata.blob_hash.0.as_slice(),
+                        Details = "Blob not found.",
+                        CausedBy = trc::location!(),
+                    );
+                    return Ok(SnippetOutcome::NotFound(email_id));
+                };
+                let raw_message = ChainedBytes::new(metadata.raw_headers.as_ref()).with_last(
+                    raw_body
+                        .get(metadata.blob_body_offset.to_native() as usize..)
+                        .unwrap_or_default(),
                 );
 
-                response.not_found.push(email_id);
-                continue;
-            };
-            let raw_message = ChainedBytes::new(metadata.raw_headers.as_ref()).with_last(
-                raw_body
-                    .get(metadata.blob_body_offset.to_native() as usize..)
-                    .unwrap_or_default(),
-            );
+                // Find a matching part
+                'outer: for part in contents.parts.iter() {
+                    match &part.body {
+                        ArchivedMetadataPartType::Text => {
+                            let text = match part.decode_contents(&raw_message) {
+                                DecodedPartContent::Text(text) => text,
+                                _ => unreachable!(),
+                            };
 
-            // Find a matching part
-            'outer: for part in contents.parts.iter() {
-                match &part.body {
-                    ArchivedMetadataPartType::Text => {
-                        let text = match part.decode_contents(&raw_message) {
-                            DecodedPartContent::Text(text) => text,
-                            _ => unreachable!(),
-                        };
-
-                        if let Some(body) = generate_snippet(&text, &terms, language, is_exact) {
-                            snippet.preview = body.into();
-                            break;
-                        }
-                    }
-                    ArchivedMetadataPartType::Html => {
-                        let text = match part.decode_contents(&raw_message) {
-                            DecodedPartContent::Text(html) => html_to_text(&html),
-                            _ => unreachable!(),
-                        };
-
-                        if let Some(body) = generate_snippet(&text, &terms, language, is_exact) {
-                            snippet.preview = body.into();
-                            break;
-                        }
-                    }
-                    ArchivedMetadataPartType::Message(message) => {
-                        for part in metadata.contents[u16::from(message) as usize].parts.iter() {
-                            if let ArchivedMetadataPartType::Text | ArchivedMetadataPartType::Html =
-                                part.body
+                            if let Some(body) = generate_snippet(&text, terms, language, is_exact)
                             {
-                                let text = match (part.decode_contents(&raw_message), &part.body) {
-                                    (
-                                        DecodedPartContent::Text(text),
-                                        ArchivedMetadataPartType::Text,
-                                    ) => text,
-                                    (
-                                        DecodedPartContent::Text(html),
-                                        ArchivedMetadataPartType::Html,
-                                    ) => html_to_text(&html).into(),
-                                    _ => unreachable!(),
-                                };
+                                snippet.preview = body.into();
+                                break;
+                            }
+                        }
+                        ArchivedMetadataPartType::Html => {
+                            let text = match part.decode_contents(&raw_message) {
+                                DecodedPartContent::Text(html) => html_to_text(&html),
+                                _ => unreachable!(),
+                            };
 
-                                if let Some(body) =
-                                    generate_snippet(&text, &terms, language, is_exact)
+                            if let Some(body) = generate_snippet(&text, terms, language, is_exact)
+                            {
+                                snippet.preview = body.into();
+                                break;
+                            }
+                        }
+                        ArchivedMetadataPartType::Message(message) => {
+                            for part in metadata.contents[u16::from(message) as usize].parts.iter()
+                            {
+                                if let ArchivedMetadataPartType::Text
+                                | ArchivedMetadataPartType::Html = part.body
                                 {
-                                    snippet.preview = body.into();
-                                    break 'outer;
+                                    let text = match (part.decode_contents(&raw_message), &part.body)
+                                    {
+                                        (
+                                            DecodedPartContent::Text(text),
+                                            ArchivedMetadataPartType::Text,
+                                        ) => text,
+                                        (
+                                            DecodedPartContent::Text(html),
+                                            ArchivedMetadataPartType::Html,
+                                        ) => html_to_text(&html).into(),
+                                        _ => unreachable!(),
+                                    };
+
+                                    if let Some(body) =
+                                        generate_snippet(&text, terms, language, is_exact)
+                                    {
+                                        snippet.preview = body.into();
+                                        break 'outer;
+                                    }
                                 }
                             }
                         }
+                        _ => (),
                     }
-                    _ => (),
                 }
-            }
-            //}
 
-            response.list.push(snippet);
+                Ok(SnippetOutcome::Found(snippet))
+            })
+            .buffer_unordered(concurrency)
+            .try_collect()
+            .await?;
+
+        for outcome in outcomes {
+            match outcome {
+                SnippetOutcome::Found(s) => response.list.push(s),
+                SnippetOutcome::NotFound(id) => response.not_found.push(id),
+            }
         }
 
         Ok(response)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use futures_util::{StreamExt, TryStreamExt, stream};
+    use std::time::{Duration, Instant};
+
+    /// Verifies the stream primitive that `email_search_snippet` relies on:
+    /// `stream::iter(...).map(future).buffer_unordered(N)` should run up to
+    /// `N` futures concurrently, collapsing wall time from `n*delay` down to
+    /// roughly `ceil(n/N) * delay`. This is a unit-level proof that swapping
+    /// the previous sequential `for` loop for `buffer_unordered` actually
+    /// pays off when each iteration awaits a non-trivial latency (e.g. an
+    /// S3-style blob GET); the integration layer uses the same primitive
+    /// over real blob futures.
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn buffer_unordered_collapses_latency() {
+        let per_delay = Duration::from_millis(100);
+        let count: usize = 16;
+        let concurrency: usize = 8;
+
+        let started = Instant::now();
+        let outcomes: Vec<Duration> = stream::iter(0..count)
+            .map(|_| async move {
+                tokio::time::sleep(per_delay).await;
+                Ok::<_, std::convert::Infallible>(per_delay)
+            })
+            .buffer_unordered(concurrency)
+            .try_collect()
+            .await
+            .expect("stream completed");
+        let elapsed = started.elapsed();
+
+        assert_eq!(outcomes.len(), count);
+
+        // Sequential lower bound (with paused time): exactly count * per_delay.
+        // Concurrent upper bound: a small multiple of ceil(count/concurrency) * per_delay.
+        let waves = count.div_ceil(concurrency) as u32;
+        let concurrent_target = per_delay * waves;
+        let sequential_total = per_delay * count as u32;
+        assert!(
+            elapsed < sequential_total / 2,
+            "elapsed {elapsed:?} not meaningfully lower than sequential {sequential_total:?}",
+        );
+        assert!(
+            elapsed <= concurrent_target * 2,
+            "elapsed {elapsed:?} exceeded ~2x concurrent target {concurrent_target:?}",
+        );
     }
 }

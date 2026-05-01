@@ -1,6 +1,6 @@
 [package]
 name = "jmap"
-version = "0.16.1"
+version = "0.16.3"
 edition = "2024"
 
 [dependencies]
@@ -57,3 +57,6 @@ hashify = "0.2"
 test_mode = []
 dev_mode = []
 enterprise = []
+
+[dev-dependencies]
+tokio = { version = "1.47", features = ["rt", "macros", "time", "test-util"] }

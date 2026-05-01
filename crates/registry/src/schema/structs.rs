@@ -2086,6 +2086,8 @@ pub struct Jmap {
     pub set_max_objects: u64,
     #[serde(rename = "snippetMaxResults")]
     pub snippet_max_results: u64,
+    #[serde(rename = "snippetConcurrency")]
+    pub snippet_concurrency: u64,
     #[serde(rename = "maxConcurrentUploads")]
     pub max_concurrent_uploads: Option<u64>,
     #[serde(rename = "maxUploadSize")]
@@ -3370,6 +3372,8 @@ pub struct S3Store {
     pub key_prefix: Option<String>,
     #[serde(rename = "allowInvalidCerts")]
     pub allow_invalid_certs: bool,
+    #[serde(rename = "verifyAfterWrite")]
+    pub verify_after_write: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

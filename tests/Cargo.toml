@@ -1,12 +1,12 @@
 [package]
 name = "tests"
-version = "0.16.3"
+version = "0.16.5"
 edition = "2024"
 
 [features]
 #default = ["sqlite", "postgres", "mysql", "rocks", "s3", "redis", "nats", "azure", "foundationdb"]
 #default = ["sqlite", "postgres", "mysql", "rocks", "s3", "redis", "foundationdb"]
-default = ["rocks", "s3"]
+default = ["rocks"]
 sqlite = ["store/sqlite", "directory/sqlite"]
 foundationdb = ["store/foundation", "common/foundation"]
 postgres = ["store/postgres", "directory/postgres"]
@@ -45,7 +45,7 @@ migration = { path = "../crates/migration", features = ["test_mode", "enterprise
 trc = { path = "../crates/trc", features = ["enterprise"] }
 managesieve = { path = "../crates/managesieve", features = ["test_mode", "enterprise"] }
 smtp-proto = { version = "0.2" }
-mail-auth = { version = "0.8", features = ["test"] }
+mail-auth = { version = "0.9", features = ["test"] }
 mail-parser = { version = "0.11", features = ["full_encoding", "rkyv"] } 
 mail-builder = "0.4.4"
 sieve-rs = { version = "0.7", features = ["rkyv"] } 
@@ -81,7 +81,7 @@ rkyv = { version = "0.8.10", features = ["little_endian"] }
 compact_str = "0.9.0"
 quick-xml = "0.39"
 jmap-tools = { version = "0.1" }
-dns-update = { version = "0.2.1", features = ["test_provider"] }
+dns-update = { version = "0.3", features = ["test_provider"] }
 x509-parser = "0.18"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]

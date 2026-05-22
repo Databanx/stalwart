@@ -2,6 +2,65 @@
 
 All notable changes to this project will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.16.5] - 2026-05-11
+
+If you are upgrading from v0.16.x, replace the binary (or run `docker pull`). If you are upgrading from v0.15.x and below, please read the [upgrading documentation](https://github.com/stalwartlabs/stalwart/blob/main/UPGRADING/v0_16.md) for more information on how to upgrade from previous versions.
+
+## Added
+- `is_ip_in_cidr` expression function for CIDR matching.
+
+## Changed
+- Bump `mail-auth` to 0.9 (which bumps `hickory-resolver` to 0.26).
+- Deprecated RFC2136 SIG(0) support as it is no longer supported by `hickory`.
+
+## Fixed
+- JMAP: 
+  - Patching ids containing digits in JSON Pointers fails.
+  - Patching nested objects with `null` values fails.
+- External directories:
+  - SQL: Return `Failed` instead of `Error` when the query returns no results.
+  - LDAP: Impersonation fails when the user has not logged in before.
+- Network: Attempt binding to IPv4 when binding to IPv6 fails with `EAFNOSUPPORT` error.
+- Bootstrap: Timeout after 30 seconds when probing the data store.
+- HTTP: Use permissive CORS headers for `.well-known` endpoints.
+- ACME: 
+  - Include apex domains when requesting certificates for subdomains.
+  - Use the public suffix list to determine the zone name when no origin is provided.
+- MTA:
+  - Allow rescheduling recipients with permanent failures.
+  - Process reports using original `RCPT` before rewriting.
+- Autodiscover v2 endpoint unreachable.
+- DNS update (via `dns-update` crate):
+  - OVH + Google Cloud DNS: Fix FQDN handling for `MX` and `SRV` records.
+  - Route53: Fix changeset error resolution.
+  - deSEC: Use empty `subname` for apex records instead of `@`, which the API rejects.
+  - Cloudflare: Wrap `TXT` record content in double quotes (RFC 1035) to suppress dashboard warnings.
+- iCalendar/JSCalendar (via `calcard` crate):
+  - Support `STATUS:CANCELLED` mapping from `VTODO` to JSCalendar.
+  - Fixed duration parsing for zero duration `PT0S`.
+
+## [0.16.4] - 2026-05-05
+
+If you are upgrading from v0.16.x, replace the binary (or run `docker pull`). If you are upgrading from v0.15.x and below, please read the [upgrading documentation](https://github.com/stalwartlabs/stalwart/blob/main/UPGRADING/v0_16.md) for more information on how to upgrade from previous versions.
+
+## Added
+
+## Changed
+
+## Fixed
+- Live tracing in community and OSS versions.
+- Timezone changes from the `AccountSettings` object return `invalidProperties`.
+- `mail-parser` panic with certain messages containing corrupted attachments.
+- Pagination by anchor for queued messages, tasks and metrics.
+- Spam filter: Use original instead of rewritten `RCPT` on checks.
+- JMAP:
+  - References in nested objects not resolved.
+  - `AddressBook/query` fetches wrong resources.
+- Import tool fails to restore registry entries.
+- FDB: Allow multiple FoundationDB instances in the same process.
+- Autoconfig: Return `%EMAILADDRESS%` when no email address is provided.
+- Quota: Include Sieve scripts in quota recalculations.
+
 ## [0.16.3] - 2026-04-30
 
 If you are upgrading from v0.16.x, replace the binary (or run `docker pull`). If you are upgrading from v0.15.x and below, please read the [upgrading documentation](https://github.com/stalwartlabs/stalwart/blob/main/UPGRADING/v0_16.md) for more information on how to upgrade from previous versions.

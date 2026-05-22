@@ -129,7 +129,12 @@ pub(crate) async fn queued_message_set(
                 .iter_mut()
                 .find(|r| r.address.as_ref() == address.as_str())
             else {
-                continue;
+                set.response.not_updated.append(
+                    id,
+                    SetError::invalid_properties()
+                        .with_description(format!("Recipient '{address}' does not exist")),
+                );
+                continue 'outer;
             };
             if rcpt.orcpt.as_deref() != queued_rcpt.orcpt.as_deref() {
                 queued_rcpt.orcpt = rcpt.orcpt.as_deref().map(|v| v.into());
@@ -164,11 +169,12 @@ pub(crate) async fn queued_message_set(
                 }
             }
 
-            if let Some(next_retry) = set_next_retry
-                && !matches!(queued_rcpt.status, Status::PermanentFailure(_))
-            {
-                queued_rcpt.retry.due = next_retry.timestamp() as u64;
-                has_changes = true;
+            if let Some(next_retry) = set_next_retry {
+                let new_due = next_retry.timestamp() as u64;
+                if queued_rcpt.retry.due != new_due {
+                    queued_rcpt.retry.due = new_due;
+                    has_changes = true;
+                }
             }
 
             if matches!(rcpt.status, RecipientStatus::Scheduled)
@@ -472,9 +478,18 @@ pub(crate) async fn queued_message_query(
 
         let mut total = 0;
         if let Some(anchor) = req.request.anchor {
-            let anchor = anchor.id();
-            if anchor > due_from {
-                due_from = anchor;
+            let anchor_id = anchor.id();
+            if let Some(archive) = req.server.read_message_archive(anchor_id).await?
+                && let Ok(archived) = archive.unarchive::<Message>()
+                && let Some(anchor_due) = archived.next_delivery_event(queue_name)
+                && anchor_due >= due_from
+                && anchor_due <= due_to
+            {
+                if params.sort_ascending {
+                    due_from = anchor_due;
+                } else {
+                    due_to = anchor_due;
+                }
             }
         }
 

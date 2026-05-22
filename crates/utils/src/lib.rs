@@ -213,10 +213,14 @@ pub fn sanitize_email(email: &str) -> Option<String> {
 
     for ch in chars.by_ref() {
         match ch {
-            '.' | '+' | '-' | '_' => {
-                if !last_ch.is_alphanumeric() {
+            '.' => {
+                if last_ch == NIL_CHAR || last_ch == '.' {
                     return None;
                 }
+                result.push('.');
+            }
+            '!' | '#' | '$' | '%' | '&' | '\'' | '*' | '+' | '-' | '/' | '=' | '?' | '^' | '_'
+            | '`' | '{' | '|' | '}' | '~' => {
                 result.push(ch);
             }
             ' ' | '\x09'..='\x0d' => continue,
@@ -275,9 +279,7 @@ pub fn sanitize_email(email: &str) -> Option<String> {
         last_ch = ch;
     }
 
-    if last_ch.is_alphanumeric()
-        && psl::domain(result.as_bytes()).is_some_and(|d| d.suffix().typ().is_some())
-    {
+    if last_ch.is_alphanumeric() && is_valid_domain(&result) {
         Some(result)
     } else {
         None
@@ -290,10 +292,14 @@ pub fn sanitize_email_local(local: &str) -> Option<String> {
 
     for ch in local.chars() {
         match ch {
-            '.' | '+' | '-' | '_' => {
-                if !last_ch.is_alphanumeric() {
+            '.' => {
+                if last_ch == NIL_CHAR || last_ch == '.' {
                     return None;
                 }
+                result.push('.');
+            }
+            '!' | '#' | '$' | '%' | '&' | '\'' | '*' | '+' | '-' | '/' | '=' | '?' | '^' | '_'
+            | '`' | '{' | '|' | '}' | '~' => {
                 result.push(ch);
             }
             ' ' | '\x09'..='\x0d' => continue,

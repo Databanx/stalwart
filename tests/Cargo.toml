@@ -1,12 +1,12 @@
 [package]
 name = "tests"
-version = "0.16.5"
+version = "0.16.6"
 edition = "2024"
 
 [features]
 #default = ["sqlite", "postgres", "mysql", "rocks", "s3", "redis", "nats", "azure", "foundationdb"]
 #default = ["sqlite", "postgres", "mysql", "rocks", "s3", "redis", "foundationdb"]
-default = ["rocks"]
+default = ["rocks", "sqlite"]
 sqlite = ["store/sqlite", "directory/sqlite"]
 foundationdb = ["store/foundation", "common/foundation"]
 postgres = ["store/postgres", "directory/postgres"]
@@ -81,7 +81,7 @@ rkyv = { version = "0.8.10", features = ["little_endian"] }
 compact_str = "0.9.0"
 quick-xml = "0.39"
 jmap-tools = { version = "0.1" }
-dns-update = { version = "0.3", features = ["test_provider"] }
+dns-update = { version = "0.4.0", features = ["test_provider"] }
 x509-parser = "0.18"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]

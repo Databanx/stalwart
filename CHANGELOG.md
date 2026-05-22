@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.16.6] - 2026-05-20
+
+If you are upgrading from v0.16.x, replace the binary (or run `docker pull`). If you are upgrading from v0.15.x and below, please read the [upgrading documentation](https://github.com/stalwartlabs/stalwart/blob/main/UPGRADING/v0_16.md) for more information on how to upgrade from previous versions.
+
+## Added
+- Added 58 new DNS provider integrations (see [dns-update](https://github.com/stalwartlabs/dns-update/blob/main/CHANGELOG.md#dns-update-040) crate for details).
+- DNS updater: Log DNS record types and values.
+- Sieve: Allow User Sieve scripts to access `orcpt`.
+- MTA: Log when messages are rejected or discarded by the spam classifier.
+
+## Changed
+- Bump JMAP File Storage to [draft-ietf-jmap-filenode-14](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-filenode-14).
+- Accept password hashes with `$` or `{` prefixes as secure secrets.
+
+## Fixed
+- DAV: `acl-principal-prop-set` REPORT enforced the wrong privilege.
+- JMAP: `Thread/get` did not filter by per-mailbox ACLs on shared accounts.
+- IMAP: `UID FETCH N:*` could miss messages moved into a SELECTed mailbox by another connection.
+- DNS updater:
+  - Skip `v=spf1 a -all` records for apex domains.
+  - RFC2136 TSIG: regression related to multiplexer.
+  - Route53: Chunk `TXT` records when they exceed 255 characters.
+- ACME: 
+  - Update `defaultCertificateId` when renewing a certificate that is currently set as default.
+  - Perform `DNS-01` authorizations sequentially to avoid race conditions in some DNS providers.
+- Allow internal TLDs and special characters in e-mail addresses.
+- Websocket: Perform case insensitive matching during upgrade.
+- LDAP: Synchronize accounts when expanding mailing list recipients.
+- Sieve: `replace` action adds an extra `From` header.
+- ACL: Orphaned ACL entries for deleted accounts cause JMAP session errors.
+
 ## [0.16.5] - 2026-05-11
 
 If you are upgrading from v0.16.x, replace the binary (or run `docker pull`). If you are upgrading from v0.15.x and below, please read the [upgrading documentation](https://github.com/stalwartlabs/stalwart/blob/main/UPGRADING/v0_16.md) for more information on how to upgrade from previous versions.

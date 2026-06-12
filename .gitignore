@@ -6,3 +6,5 @@ run.sh
 !.gitignore
 !.gitattributes
 !.github
+!.claude
+.claude/settings.local.json

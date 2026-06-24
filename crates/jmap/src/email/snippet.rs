@@ -17,7 +17,7 @@ use jmap_proto::{
         search_snippet::{GetSearchSnippetRequest, GetSearchSnippetResponse, SearchSnippet},
     },
     object::email::EmailFilter,
-    request::IntoValid,
+    request::MaybeInvalid,
 };
 use futures_util::{StreamExt, TryStreamExt, stream};
 use mail_parser::decoders::html::html_to_text;
@@ -34,7 +34,7 @@ use utils::chained_bytes::ChainedBytes;
 
 enum SnippetOutcome {
     Found(SearchSnippet),
-    NotFound(Id),
+    NotFound(MaybeInvalid<Id>),
 }
 
 pub trait EmailSearchSnippet: Sync + Send {
@@ -114,8 +114,9 @@ impl EmailSearchSnippet for Server {
         let mut response = GetSearchSnippetResponse {
             account_id: request.account_id,
             list: Vec::with_capacity(email_ids.len()),
-            not_found: vec![],
+            not_found: None,
         };
+        let mut not_found = Vec::new();
 
         if email_ids.len() > self.core.jmap.snippet_max_results {
             return Err(trc::JmapEvent::RequestTooLarge.into_err());
@@ -128,11 +129,16 @@ impl EmailSearchSnippet for Server {
         let terms = &terms;
         let document_ids = &document_ids;
 
-        let outcomes: Vec<SnippetOutcome> = stream::iter(email_ids.into_valid())
+        let outcomes: Vec<SnippetOutcome> = stream::iter(email_ids)
             .map(|email_id| async move {
+                // Preserve unparsable ids in `notFound` instead of dropping them.
+                let email_id = match email_id {
+                    MaybeInvalid::Value(email_id) => email_id,
+                    invalid => return Ok::<_, trc::Error>(SnippetOutcome::NotFound(invalid)),
+                };
                 let document_id = email_id.document_id();
                 if !document_ids.contains(document_id) {
-                    return Ok::<_, trc::Error>(SnippetOutcome::NotFound(email_id));
+                    return Ok(SnippetOutcome::NotFound(MaybeInvalid::Value(email_id)));
                 }
 
                 let mut snippet = SearchSnippet {
@@ -156,7 +162,7 @@ impl EmailSearchSnippet for Server {
                     .await?
                 {
                     Some(metadata) => metadata,
-                    None => return Ok(SnippetOutcome::NotFound(email_id)),
+                    None => return Ok(SnippetOutcome::NotFound(MaybeInvalid::Value(email_id))),
                 };
                 let metadata = metadata_
                     .unarchive::<MessageMetadata>()
@@ -190,7 +196,7 @@ impl EmailSearchSnippet for Server {
                         Details = "Blob not found.",
                         CausedBy = trc::location!(),
                     );
-                    return Ok(SnippetOutcome::NotFound(email_id));
+                    return Ok(SnippetOutcome::NotFound(MaybeInvalid::Value(email_id)));
                 };
                 let raw_message = ChainedBytes::new(metadata.raw_headers.as_ref()).with_last(
                     raw_body
@@ -266,8 +272,12 @@ impl EmailSearchSnippet for Server {
         for outcome in outcomes {
             match outcome {
                 SnippetOutcome::Found(s) => response.list.push(s),
-                SnippetOutcome::NotFound(id) => response.not_found.push(id),
+                SnippetOutcome::NotFound(id) => not_found.push(id),
             }
+        }
+
+        if !not_found.is_empty() {
+            response.not_found = Some(not_found);
         }
 
         Ok(response)
@@ -277,7 +287,12 @@ impl EmailSearchSnippet for Server {
 #[cfg(test)]
 mod tests {
     use futures_util::{StreamExt, TryStreamExt, stream};
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
+    // `tokio::time::Instant` is driven by the test runtime's virtual clock, so
+    // under `start_paused = true` it advances with the mocked `sleep`s. Using
+    // `std::time::Instant` here would measure wall-clock (~µs under auto-advance)
+    // and pass even for a sequential implementation, making the test vacuous.
+    use tokio::time::Instant;
 
     /// Verifies the stream primitive that `email_search_snippet` relies on:
     /// `stream::iter(...).map(future).buffer_unordered(N)` should run up to

@@ -350,18 +350,17 @@ impl EmailQuery for Server {
             .await?;
 
         let collapse_threads = request.arguments.collapse_threads.unwrap_or(false);
-
         let total_results = if collapse_threads {
-            let mut unique_threads = AHashSet::new();
-            for &document_id in &results {
-                if let Some(thread_id) = cached_messages
-                    .email_by_id(&document_id)
-                    .map(|email| email.thread_id)
-                {
-                    unique_threads.insert(thread_id);
-                }
-            }
-            unique_threads.len()
+            let mut seen_thread_ids = AHashSet::new();
+            results
+                .iter()
+                .filter_map(|document_id| {
+                    cached_messages
+                        .email_by_id(document_id)
+                        .map(|email| email.thread_id)
+                })
+                .filter(|thread_id| seen_thread_ids.insert(*thread_id))
+                .count()
         } else {
             results.len()
         };

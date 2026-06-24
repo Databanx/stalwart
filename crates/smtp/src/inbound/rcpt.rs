@@ -70,7 +70,7 @@ impl<T: SessionStream> Session<T> {
         }
 
         // Build RCPT
-        let address_lcase = to.address.to_lowercase();
+        let address_lcase = to.address.to_lowercase_address(true);
         let rcpt = SessionAddress {
             domain: address_lcase.domain_part().into(),
             address_lcase,
@@ -140,7 +140,7 @@ impl<T: SessionStream> Session<T> {
             }
 
             // Milter filtering
-            if let Err(message) = self.run_milters(Stage::Rcpt, None).await {
+            if let Err(message) = self.run_milters(Stage::Rcpt, None, None).await {
                 self.data.rcpt_to.pop();
                 return self.write(message.message.as_bytes()).await;
             }
@@ -167,7 +167,7 @@ impl<T: SessionStream> Session<T> {
                 );
 
                 if new_address.contains('@') {
-                    rcpt.address_lcase = new_address.to_lowercase();
+                    rcpt.address_lcase = new_address.to_lowercase_address(true);
                     rcpt.domain = rcpt.address_lcase.domain_part().into();
                     rcpt.address = new_address;
                 }

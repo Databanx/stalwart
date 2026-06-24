@@ -52,6 +52,8 @@ pub struct EmailAddressRef<'x> {
 pub enum EmailCache {
     Account(u32),
     MailingList(u32),
+    DisabledAccountAddress(u32),
+    DisabledListAddress(u32),
 }
 
 #[derive(Debug, Clone)]
@@ -101,6 +103,7 @@ pub struct RoleCache {
 
 #[derive(Debug, Clone)]
 pub struct MailingListCache {
+    pub addresses: Box<[EmailAddress]>,
     pub recipients: Arc<[Box<str>]>,
 }
 
@@ -137,6 +140,7 @@ pub struct AccessTokenInner {
     pub(crate) concurrent_uploads: Option<ConcurrencyLimiter>,
     pub(crate) revision_account: u64,
     pub(crate) revision: u64,
+    pub(crate) credential_version: u64,
     pub(crate) obj_size: u64,
 }
 
@@ -244,7 +248,11 @@ impl CacheItemWeight for RoleCache {
 impl CacheItemWeight for MailingListCache {
     fn weight(&self) -> u64 {
         std::mem::size_of::<MailingListCache>() as u64
-            //+ self.addresses.iter().map(|s| s.len() as u64).sum::<u64>()
+            + self
+                .addresses
+                .iter()
+                .map(|s| s.local_part.len() as u64 + std::mem::size_of::<EmailAddress>() as u64)
+                .sum::<u64>()
             + self.recipients.iter().map(|s| s.len() as u64).sum::<u64>()
     }
 }

@@ -41,11 +41,18 @@ pub struct DnssecResolver {
     pub resolver: TokioResolver,
 }
 
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TlsaMatching {
+    Full,
+    Sha256,
+    Sha512,
+}
+
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TlsaEntry {
     pub is_end_entity: bool,
-    pub is_sha256: bool,
     pub is_spki: bool,
+    pub matching: TlsaMatching,
     pub data: Vec<u8>,
 }
 
@@ -144,7 +151,11 @@ impl Resolvers {
                     };
                     let mut connection = ConnectionConfig::new(protocol);
                     connection.port = port;
-                    resolver_config.add_name_server(NameServerConfig::new(ip, true, vec![connection]));
+                    resolver_config.add_name_server(NameServerConfig::new(
+                        ip,
+                        true,
+                        vec![connection],
+                    ));
                 }
 
                 opts.num_concurrent_reqs = resolver.concurrency as usize;

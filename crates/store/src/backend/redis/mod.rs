@@ -12,6 +12,7 @@ use deadpool::{
 use redis::{
     Client, ProtocolVersion,
     cluster::{ClusterClient, ClusterClientBuilder},
+    cluster_read_routing::RandomReplicaStrategy,
 };
 use registry::{
     schema::{enums::RedisProtocol, structs},
@@ -77,7 +78,7 @@ impl RedisStore {
             builder = builder.min_retry_wait(value.as_millis());
         }
         if config.read_from_replicas {
-            builder = builder.read_from_replicas();
+            builder = builder.read_routing_strategy(RandomReplicaStrategy);
         }
         if matches!(config.protocol_version, RedisProtocol::Resp3) {
             builder = builder.use_protocol(ProtocolVersion::RESP3);

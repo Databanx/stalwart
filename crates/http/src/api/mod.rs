@@ -128,8 +128,10 @@ impl ManagementApi for Server {
                                 self.encode_access_token(
                                     GrantType::LiveTracing,
                                     account_id,
-                                    "web",
+                                    self.account(account_id).await?.name(),
                                     60,
+                                    None,
+                                    None,
                                 )
                                 .await?,
                             ))
@@ -146,8 +148,10 @@ impl ManagementApi for Server {
                                 self.encode_access_token(
                                     GrantType::LiveMetrics,
                                     account_id,
-                                    "web",
+                                    self.account(account_id).await?.name(),
                                     60,
+                                    None,
+                                    None,
                                 )
                                 .await?,
                             ))
@@ -164,8 +168,10 @@ impl ManagementApi for Server {
                                 self.encode_access_token(
                                     GrantType::LiveDelivery,
                                     account_id,
-                                    "web",
+                                    self.account(account_id).await?.name(),
                                     60,
+                                    None,
+                                    None,
                                 )
                                 .await?,
                             ))
@@ -322,7 +328,10 @@ impl UnauthorizedResponse for HttpResponse {
     fn unauthorized(include_realms: bool) -> Self {
         (if include_realms {
             HttpResponse::new(StatusCode::UNAUTHORIZED)
-                .with_header(header::WWW_AUTHENTICATE, "Bearer realm=\"Stalwart Server\"")
+                .with_header(
+                    header::WWW_AUTHENTICATE,
+                    "Bearer realm=\"Stalwart Server\", resource_metadata=\"/.well-known/oauth-protected-resource\"",
+                )
                 .with_header(header::WWW_AUTHENTICATE, "Basic realm=\"Stalwart Server\"")
         } else {
             HttpResponse::new(StatusCode::UNAUTHORIZED)

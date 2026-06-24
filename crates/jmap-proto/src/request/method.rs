@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
 
+use crate::request::capability::Capability;
 use registry::{
     schema::prelude::{OBJ_SINGLETON, ObjectType},
     types::EnumImpl,
@@ -40,6 +41,31 @@ pub enum MethodObject {
     ParticipantIdentity,
     ShareNotification,
     Registry(ObjectType),
+}
+
+impl MethodObject {
+    pub fn capability(&self) -> Capability {
+        match self {
+            MethodObject::Email
+            | MethodObject::Mailbox
+            | MethodObject::Thread
+            | MethodObject::SearchSnippet => Capability::Mail,
+            MethodObject::Core | MethodObject::PushSubscription => Capability::Core,
+            MethodObject::Blob => Capability::Blob,
+            MethodObject::Identity | MethodObject::EmailSubmission => Capability::Submission,
+            MethodObject::VacationResponse => Capability::VacationResponse,
+            MethodObject::SieveScript => Capability::Sieve,
+            MethodObject::Principal | MethodObject::ShareNotification => Capability::Principals,
+            MethodObject::Quota => Capability::Quota,
+            MethodObject::Calendar
+            | MethodObject::CalendarEvent
+            | MethodObject::CalendarEventNotification
+            | MethodObject::ParticipantIdentity => Capability::Calendars,
+            MethodObject::AddressBook | MethodObject::ContactCard => Capability::Contacts,
+            MethodObject::FileNode => Capability::FileNode,
+            MethodObject::Registry(_) => Capability::Stalwart,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -218,7 +244,7 @@ impl MethodName {
     }
 
     pub fn parse(s: &str) -> Option<Self> {
-        hashify::tiny_map!(s.as_bytes(), 
+        hashify::tiny_map!(s.as_bytes(),
             "PushSubscription/get" => (MethodObject::PushSubscription, MethodFunction::Get),
             "PushSubscription/set" => (MethodObject::PushSubscription, MethodFunction::Set),
 
@@ -331,7 +357,7 @@ impl MethodName {
         ).or_else(|| {
             let (obj, fnc) = s.strip_prefix("x:")?.split_once('/')?;
             let obj = ObjectType::parse(obj)?;
-            let fnc = hashify::tiny_map!(fnc.as_bytes(), 
+            let fnc = hashify::tiny_map!(fnc.as_bytes(),
                 "get" => MethodFunction::Get,
                 "set" => MethodFunction::Set,
                 "query" => MethodFunction::Query,

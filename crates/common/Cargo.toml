@@ -1,6 +1,6 @@
 [package]
 name = "common"
-version = "0.16.6"
+version = "0.16.10"
 edition = "2024"
 build = "build.rs"
 
@@ -20,7 +20,7 @@ mail-parser = { version = "0.11", features = ["full_encoding"] }
 mail-builder = { version = "0.4" }
 mail-auth = { version = "0.9", features = ["generate"] }
 smtp-proto = { version = "0.2", features = ["rkyv"] }
-dns-update = { version = "0.4.0" }
+dns-update = { version = "0.5" }
 calcard = { version = "0.3", features = ["rkyv"] }
 ahash = { version = "0.8.2", features = ["serde"] }
 parking_lot = "0.12.1"
@@ -85,7 +85,7 @@ rasn-pkix = "0.28"
 sequoia-openpgp = { version = "2.0", default-features = false, features = ["crypto-rust", "allow-experimental-crypto", "allow-variable-time-crypto"] }
 zxcvbn = "3.1.0"
 pkcs8 = { version = "0.10.2", features = ["alloc", "std"] }
-quick-xml = "0.39"
+quick-xml = "0.40"
 
 [target.'cfg(unix)'.dependencies]
 privdrop = "0.5.3"

@@ -3421,7 +3421,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.4",
+ "socket2 0.5.10",
  "tokio",
  "tower-service",
  "tracing",
@@ -5942,7 +5942,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls",
- "socket2 0.6.4",
+ "socket2 0.5.10",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -5982,7 +5982,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.4",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -6685,8 +6685,7 @@ dependencies = [
 [[package]]
 name = "rust-s3"
 version = "0.37.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aeedb13abdaa7e48d391de05b0569b37fa0a7a64a668dff6ffb2141ad0c2527e"
+source = "git+https://github.com/Databanx/rust-s3.git?rev=66629dd0a613b333deb978108340fe5463e18ae7#66629dd0a613b333deb978108340fe5463e18ae7"
 dependencies = [
  "async-trait",
  "aws-creds",
@@ -7044,7 +7043,7 @@ dependencies = [
  "aes-gcm",
  "anyhow",
  "argon2",
- "base64 0.22.1",
+ "base64 0.21.7",
  "block-padding 0.3.3",
  "blowfish 0.9.1",
  "buffered-reader",

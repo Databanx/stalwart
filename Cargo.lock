@@ -3427,7 +3427,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.6.4",
  "tokio",
  "tower-service",
  "tracing",
@@ -6000,7 +6000,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls",
- "socket2 0.5.10",
+ "socket2 0.6.4",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -6041,7 +6041,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.4",
  "tracing",
  "windows-sys 0.61.2",
 ]
@@ -6753,7 +6753,7 @@ dependencies = [
 [[package]]
 name = "rust-s3"
 version = "0.37.2"
-source = "git+https://github.com/Databanx/rust-s3.git?rev=66629dd0a613b333deb978108340fe5463e18ae7#66629dd0a613b333deb978108340fe5463e18ae7"
+source = "git+https://github.com/Databanx/rust-s3.git?rev=6380381c8a9298dc12206b39bb54d68934a71d9b#6380381c8a9298dc12206b39bb54d68934a71d9b"
 dependencies = [
  "async-trait",
  "aws-creds",

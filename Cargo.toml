@@ -77,4 +77,4 @@ rpath = false
 # bodyless DELETEs, which Cloudflare R2 rejects with SignatureDoesNotMatch
 # (durch/rust-s3#466). Remove once fixed upstream.
 [patch.crates-io]
-rust-s3 = { git = "https://github.com/Databanx/rust-s3.git", rev = "66629dd0a613b333deb978108340fe5463e18ae7" }
+rust-s3 = { git = "https://github.com/Databanx/rust-s3.git", rev = "6380381c8a9298dc12206b39bb54d68934a71d9b" }

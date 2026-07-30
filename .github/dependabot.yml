@@ -10,10 +10,6 @@ updates:
     schedule:
       interval: "weekly"
 
-  # Enable version updates for GitHub Actions
-  - package-ecosystem: "github-actions"
-    # Workflow files stored in the default location of `.github/workflows`
-    # You don't need to specify `/.github/workflows` for `directory`. You can use `directory: "/"`.
-    directory: "/"
-    schedule:
-      interval: "weekly"
+  # Updates de GitHub Actions ficam desligados neste fork: o CI do upstream é
+  # removido daqui (veja .github/README.md), então bumps de action só geram
+  # ruído de PR e conflito no próximo update de versão.

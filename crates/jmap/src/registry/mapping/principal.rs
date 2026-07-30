@@ -245,7 +245,14 @@ pub(crate) async fn validate_account(
 
             true
         }
-        _ => unreachable!(),
+        (Account::User(_), AccountUpdate::Update(Account::Group(_)))
+        | (Account::Group(_), AccountUpdate::Update(Account::User(_))) => {
+            return Ok(Err(SetError::invalid_properties()
+                .with_property(Property::Type)
+                .with_description(
+                    "Cannot change the type of an existing account.",
+                )));
+        }
     };
 
     let mut result = if validate_permissions {

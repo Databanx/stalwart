@@ -17,6 +17,7 @@ use rustls::crypto::aws_lc_rs::cipher_suite::TLS13_AES_128_GCM_SHA256;
 use std::{
     net::{IpAddr, SocketAddr},
     sync::Arc,
+    time::Duration,
 };
 use store::registry::bootstrap::Bootstrap;
 use tokio::{net::TcpStream, sync::watch};
@@ -112,11 +113,17 @@ impl Listener {
                     ),
                 };
 
+                const ACCEPT_BACKOFF: Duration = Duration::from_millis(5);
+                const MAX_ACCEPT_BACKOFF: Duration = Duration::from_secs(1);
+                let mut accept_backoff = ACCEPT_BACKOFF;
+
                 loop {
                     tokio::select! {
                         stream = listener.accept() => {
                             match stream {
                                 Ok((stream, remote_addr)) => {
+                                    accept_backoff = ACCEPT_BACKOFF;
+
                                     let server = inner.build_server();
                                     let enable_acme = (is_https && server.has_acme_tls_providers()).then(|| server.clone());
 
@@ -160,6 +167,15 @@ impl Listener {
                                     }
                                 }
                                 Err(err) => {
+                                    if matches!(
+                                        err.kind(),
+                                        std::io::ErrorKind::ConnectionAborted
+                                            | std::io::ErrorKind::ConnectionReset
+                                            | std::io::ErrorKind::Interrupted
+                                    ) {
+                                        continue;
+                                    }
+
                                     trc::event!(
                                         Network(trc::NetworkEvent::AcceptError),
                                         ListenerId = instance.id.clone(),
@@ -168,6 +184,16 @@ impl Listener {
                                         Tls = is_tls,
                                         Reason = err.to_string(),
                                     );
+
+                                    tokio::select! {
+                                        _ = tokio::time::sleep(accept_backoff) => {}
+                                        _ = shutdown_rx.changed() => {
+                                            manager.shutdown().await;
+                                            break;
+                                        }
+                                    }
+
+                                    accept_backoff = (accept_backoff * 2).min(MAX_ACCEPT_BACKOFF);
                                 }
                             }
                         },

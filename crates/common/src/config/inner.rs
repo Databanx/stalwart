@@ -13,7 +13,7 @@ use crate::{
         mailstore::spamfilter::SpamClassifier,
         server::tls::parse_certificates,
         smtp::{
-            auth::DkimSigner,
+            auth::DkimSigners,
             resolver::{Policy, Tlsa},
         },
     },
@@ -100,34 +100,34 @@ impl Caches {
         let cache = bp.setting_infallible::<structs::Cache>().await;
 
         Caches {
-            access_tokens: Cache::new(
+            access_tokens: Cache::new_single_shard(
                 cache.access_tokens,
                 (std::mem::size_of::<AccessTokenInner>() + 255) as u64,
             ),
             http_auth: Cache::new(cache.http_auth, (50 + std::mem::size_of::<u32>()) as u64),
-            messages: Cache::new(
+            messages: Cache::new_single_shard(
                 cache.messages,
                 (std::mem::size_of::<u32>()
                     + std::mem::size_of::<Arc<MessageStoreCache>>()
                     + (1024 * std::mem::size_of::<MessageUidCache>())
                     + (15 * (std::mem::size_of::<MailboxCache>() + 60))) as u64,
             ),
-            files: Cache::new(
+            files: Cache::new_single_shard(
                 cache.files,
                 (std::mem::size_of::<DavResources>() + (500 * std::mem::size_of::<DavResource>()))
                     as u64,
             ),
-            events: Cache::new(
+            events: Cache::new_single_shard(
                 cache.events,
                 (std::mem::size_of::<DavResources>() + (500 * std::mem::size_of::<DavResource>()))
                     as u64,
             ),
-            contacts: Cache::new(
+            contacts: Cache::new_single_shard(
                 cache.contacts,
                 (std::mem::size_of::<DavResources>() + (500 * std::mem::size_of::<DavResource>()))
                     as u64,
             ),
-            scheduling: Cache::new(
+            scheduling: Cache::new_single_shard(
                 cache.scheduling,
                 (std::mem::size_of::<DavResources>() + (500 * std::mem::size_of::<DavResource>()))
                     as u64,
@@ -164,7 +164,7 @@ impl Caches {
             ),
             dkim_signers: Cache::new(
                 cache.dkim_signatures,
-                (std::mem::size_of::<DkimSigner>() + 255) as u64,
+                (std::mem::size_of::<DkimSigners>() + 255) as u64,
             ),
             dns_txt: CacheWithTtl::new(cache.dns_txt, (std::mem::size_of::<Txt>() + 255) as u64),
             dns_mx: CacheWithTtl::new(cache.dns_mx, ((std::mem::size_of::<MX>() + 255) * 2) as u64),

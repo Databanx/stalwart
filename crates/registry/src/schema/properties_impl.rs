@@ -616,6 +616,8 @@ impl EnumImpl for Property {
             b"disabledPermissions" => Property::DisabledPermissions,
             b"discardAfter" => Property::DiscardAfter,
             b"disposition" => Property::Disposition,
+            b"dkim2Pass" => Property::Dkim2Pass,
+            b"dkim2Result" => Property::Dkim2Result,
             b"dkimAdspDns" => Property::DkimAdspDns,
             b"dkimCanonicalizedBody" => Property::DkimCanonicalizedBody,
             b"dkimCanonicalizedHeader" => Property::DkimCanonicalizedHeader,
@@ -766,6 +768,7 @@ impl EnumImpl for Property {
             b"fromName" => Property::FromName,
             b"futureRelease" => Property::FutureRelease,
             b"generateDkimKeys" => Property::GenerateDkimKeys,
+            b"generator" => Property::Generator,
             b"geoUrls" => Property::GeoUrls,
             b"getMaxResults" => Property::GetMaxResults,
             b"greetingTimeout" => Property::GreetingTimeout,
@@ -1025,11 +1028,13 @@ impl EnumImpl for Property {
             b"policies" => Property::Policies,
             b"policyAdkim" => Property::PolicyAdkim,
             b"policyAspf" => Property::PolicyAspf,
+            b"policyDiscoveryMethod" => Property::PolicyDiscoveryMethod,
             b"policyDisposition" => Property::PolicyDisposition,
             b"policyDomain" => Property::PolicyDomain,
             b"policyFailureReportingOptions" => Property::PolicyFailureReportingOptions,
             b"policyIdentifier" => Property::PolicyIdentifier,
             b"policyIdentifiers" => Property::PolicyIdentifiers,
+            b"policyNp" => Property::PolicyNp,
             b"policyOverrideReasons" => Property::PolicyOverrideReasons,
             b"policyStrings" => Property::PolicyStrings,
             b"policySubdomainDisposition" => Property::PolicySubdomainDisposition,
@@ -1318,6 +1323,8 @@ impl EnumImpl for Property {
             b"vrfy" => Property::Vrfy,
             b"waitOnFail" => Property::WaitOnFail,
             b"wapiVersion" => Property::WapiVersion,
+            b"webPushContact" => Property::WebPushContact,
+            b"webPushKey" => Property::WebPushKey,
             b"websocketHeartbeat" => Property::WebsocketHeartbeat,
             b"websocketThrottle" => Property::WebsocketThrottle,
             b"websocketTimeout" => Property::WebsocketTimeout,
@@ -1538,6 +1545,8 @@ impl EnumImpl for Property {
             Property::DisabledPermissions => "disabledPermissions",
             Property::DiscardAfter => "discardAfter",
             Property::Disposition => "disposition",
+            Property::Dkim2Pass => "dkim2Pass",
+            Property::Dkim2Result => "dkim2Result",
             Property::DkimAdspDns => "dkimAdspDns",
             Property::DkimCanonicalizedBody => "dkimCanonicalizedBody",
             Property::DkimCanonicalizedHeader => "dkimCanonicalizedHeader",
@@ -1688,6 +1697,7 @@ impl EnumImpl for Property {
             Property::FromName => "fromName",
             Property::FutureRelease => "futureRelease",
             Property::GenerateDkimKeys => "generateDkimKeys",
+            Property::Generator => "generator",
             Property::GeoUrls => "geoUrls",
             Property::GetMaxResults => "getMaxResults",
             Property::GreetingTimeout => "greetingTimeout",
@@ -1947,11 +1957,13 @@ impl EnumImpl for Property {
             Property::Policies => "policies",
             Property::PolicyAdkim => "policyAdkim",
             Property::PolicyAspf => "policyAspf",
+            Property::PolicyDiscoveryMethod => "policyDiscoveryMethod",
             Property::PolicyDisposition => "policyDisposition",
             Property::PolicyDomain => "policyDomain",
             Property::PolicyFailureReportingOptions => "policyFailureReportingOptions",
             Property::PolicyIdentifier => "policyIdentifier",
             Property::PolicyIdentifiers => "policyIdentifiers",
+            Property::PolicyNp => "policyNp",
             Property::PolicyOverrideReasons => "policyOverrideReasons",
             Property::PolicyStrings => "policyStrings",
             Property::PolicySubdomainDisposition => "policySubdomainDisposition",
@@ -2240,6 +2252,8 @@ impl EnumImpl for Property {
             Property::Vrfy => "vrfy",
             Property::WaitOnFail => "waitOnFail",
             Property::WapiVersion => "wapiVersion",
+            Property::WebPushContact => "webPushContact",
+            Property::WebPushKey => "webPushKey",
             Property::WebsocketHeartbeat => "websocketHeartbeat",
             Property::WebsocketThrottle => "websocketThrottle",
             Property::WebsocketTimeout => "websocketTimeout",
@@ -2464,6 +2478,8 @@ impl EnumImpl for Property {
             629 => Some(Property::DisabledPermissions),
             872 => Some(Property::DiscardAfter),
             747 => Some(Property::Disposition),
+            917 => Some(Property::Dkim2Pass),
+            916 => Some(Property::Dkim2Result),
             83 => Some(Property::DkimAdspDns),
             84 => Some(Property::DkimCanonicalizedBody),
             85 => Some(Property::DkimCanonicalizedHeader),
@@ -2614,6 +2630,7 @@ impl EnumImpl for Property {
             40 => Some(Property::FromName),
             521 => Some(Property::FutureRelease),
             124 => Some(Property::GenerateDkimKeys),
+            918 => Some(Property::Generator),
             103 => Some(Property::GeoUrls),
             436 => Some(Property::GetMaxResults),
             508 => Some(Property::GreetingTimeout),
@@ -2873,11 +2890,13 @@ impl EnumImpl for Property {
             846 => Some(Property::Policies),
             250 => Some(Property::PolicyAdkim),
             251 => Some(Property::PolicyAspf),
+            920 => Some(Property::PolicyDiscoveryMethod),
             252 => Some(Property::PolicyDisposition),
             248 => Some(Property::PolicyDomain),
             255 => Some(Property::PolicyFailureReportingOptions),
             237 => Some(Property::PolicyIdentifier),
             840 => Some(Property::PolicyIdentifiers),
+            919 => Some(Property::PolicyNp),
             262 => Some(Property::PolicyOverrideReasons),
             848 => Some(Property::PolicyStrings),
             253 => Some(Property::PolicySubdomainDisposition),
@@ -3045,7 +3064,7 @@ impl EnumImpl for Property {
             423 => Some(Property::SkipFirst),
             552 => Some(Property::SmtpGreeting),
             441 => Some(Property::SnippetMaxResults),
-            916 => Some(Property::SnippetConcurrency),
+            923 => Some(Property::SnippetConcurrency),
             591 => Some(Property::SocketBacklog),
             592 => Some(Property::SocketNoDelay),
             593 => Some(Property::SocketReceiveBufferSize),
@@ -3166,6 +3185,8 @@ impl EnumImpl for Property {
             526 => Some(Property::Vrfy),
             548 => Some(Property::WaitOnFail),
             893 => Some(Property::WapiVersion),
+            922 => Some(Property::WebPushContact),
+            921 => Some(Property::WebPushKey),
             455 => Some(Property::WebsocketHeartbeat),
             456 => Some(Property::WebsocketThrottle),
             457 => Some(Property::WebsocketTimeout),
@@ -3176,7 +3197,7 @@ impl EnumImpl for Property {
         }
     }
 
-    const COUNT: usize = 917;
+    const COUNT: usize = 924;
 }
 
 impl serde::Serialize for Property {
@@ -4358,6 +4379,10 @@ impl ObjectInner {
                 obj.member_tenant_id
             }
             ObjectInner::DkimSignature(DkimSignature::Dkim1RsaSha256(obj)) => obj.member_tenant_id,
+            ObjectInner::DkimSignature(DkimSignature::Dkim2Ed25519Sha256(obj)) => {
+                obj.member_tenant_id
+            }
+            ObjectInner::DkimSignature(DkimSignature::Dkim2RsaSha256(obj)) => obj.member_tenant_id,
             ObjectInner::DmarcExternalReport(obj) => obj.member_tenant_id,
             ObjectInner::DnsServer(DnsServer::Tsig(obj)) => obj.member_tenant_id,
             ObjectInner::DnsServer(DnsServer::Cloudflare(obj)) => obj.member_tenant_id,
@@ -4450,6 +4475,12 @@ impl ObjectInner {
                 obj.member_tenant_id = Some(id)
             }
             ObjectInner::DkimSignature(DkimSignature::Dkim1RsaSha256(obj)) => {
+                obj.member_tenant_id = Some(id)
+            }
+            ObjectInner::DkimSignature(DkimSignature::Dkim2Ed25519Sha256(obj)) => {
+                obj.member_tenant_id = Some(id)
+            }
+            ObjectInner::DkimSignature(DkimSignature::Dkim2RsaSha256(obj)) => {
                 obj.member_tenant_id = Some(id)
             }
             ObjectInner::DmarcExternalReport(obj) => obj.member_tenant_id = Some(id),

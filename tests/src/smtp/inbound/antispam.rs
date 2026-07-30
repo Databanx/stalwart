@@ -520,6 +520,7 @@ async fn antispam() {
                     .spam_classify(
                         &parsed_message,
                         &dkim_domains,
+                        None,
                         arc_result.as_ref(),
                         dmarc_result.as_ref(),
                         dmarc_policy.as_ref(),
@@ -549,6 +550,7 @@ async fn antispam() {
             let mut spam_input = session.build_spam_input(
                 &parsed_message,
                 &dkim_domains,
+                None,
                 arc_result.as_ref(),
                 dmarc_result.as_ref(),
                 dmarc_policy.as_ref(),

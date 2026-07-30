@@ -208,11 +208,7 @@ pub fn quoted_string(buf: &mut Vec<u8>, text: &str) {
 }
 
 pub fn quoted_or_literal_string(buf: &mut Vec<u8>, text: &str) {
-    if text
-        .as_bytes()
-        .iter()
-        .any(|ch| [b'\\', b'"', b'\r', b'\n'].contains(ch))
-    {
+    if text.as_bytes().iter().any(|ch| b"\\\"\r\n".contains(ch)) {
         literal_string(buf, text.as_bytes())
     } else {
         buf.push(b'"');

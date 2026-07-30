@@ -156,10 +156,14 @@ impl Status<HostResponse<Box<str>>, ErrorDetails> {
 
     pub fn from_mail_auth_error(entity: &str, err: mail_auth::Error) -> Self {
         match &err {
-            mail_auth::Error::DnsRecordNotFound(code) => Status::PermanentFailure(ErrorDetails {
-                entity: entity.into(),
-                details: Error::DnsError(format!("Domain not found: {code:?}").into_boxed_str()),
-            }),
+            mail_auth::Error::Dns(mail_auth::DnsError::RecordNotFound(code)) => {
+                Status::PermanentFailure(ErrorDetails {
+                    entity: entity.into(),
+                    details: Error::DnsError(
+                        format!("Domain not found: {code:?}").into_boxed_str(),
+                    ),
+                })
+            }
             _ => Status::TemporaryFailure(ErrorDetails {
                 entity: entity.into(),
                 details: Error::DnsError(err.to_string().into_boxed_str()),
@@ -170,7 +174,7 @@ impl Status<HostResponse<Box<str>>, ErrorDetails> {
     pub fn from_mta_sts_error(entity: &str, err: mta_sts::Error) -> Self {
         match &err {
             mta_sts::Error::Dns(err) => match err {
-                mail_auth::Error::DnsRecordNotFound(code) => {
+                mail_auth::Error::Dns(mail_auth::DnsError::RecordNotFound(code)) => {
                     Status::PermanentFailure(ErrorDetails {
                         entity: entity.into(),
                         details: Error::MtaStsError(
@@ -178,10 +182,12 @@ impl Status<HostResponse<Box<str>>, ErrorDetails> {
                         ),
                     })
                 }
-                mail_auth::Error::InvalidRecordType => Status::PermanentFailure(ErrorDetails {
-                    entity: entity.into(),
-                    details: Error::MtaStsError("Failed to parse MTA-STS DNS record.".into()),
-                }),
+                mail_auth::Error::Dns(mail_auth::DnsError::InvalidRecordType) => {
+                    Status::PermanentFailure(ErrorDetails {
+                        entity: entity.into(),
+                        details: Error::MtaStsError("Failed to parse MTA-STS DNS record.".into()),
+                    })
+                }
                 _ => Status::TemporaryFailure(ErrorDetails {
                     entity: entity.into(),
                     details: Error::MtaStsError(

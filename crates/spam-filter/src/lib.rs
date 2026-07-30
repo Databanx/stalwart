@@ -11,7 +11,9 @@ pub mod modules;
 
 use analysis::ElementLocation;
 use analysis::url::UrlParts;
-use mail_auth::{ArcOutput, DkimOutput, DmarcResult, IprevOutput, SpfOutput, dmarc::Policy};
+use mail_auth::{
+    ArcOutput, DkimOutput, DmarcResult, IprevOutput, SpfOutput, dkim2::Dkim2Output, dmarc::Policy,
+};
 use mail_parser::Message;
 use modules::html::HtmlToken;
 use nlp::tokenizers::types::TokenType;
@@ -30,6 +32,7 @@ pub struct SpamFilterInput<'x> {
     pub spf_ehlo_result: Option<&'x SpfOutput>,
     pub spf_mail_from_result: Option<&'x SpfOutput>,
     pub dkim_result: &'x [DkimOutput<'x>],
+    pub dkim2_result: Option<&'x Dkim2Output<'x>>,
     pub dmarc_result: Option<&'x DmarcResult>,
     pub dmarc_policy: Option<&'x Policy>,
     pub iprev_result: Option<&'x IprevOutput>,
@@ -147,6 +150,7 @@ impl<'x> SpamFilterInput<'x> {
             spf_ehlo_result: None,
             spf_mail_from_result: None,
             dkim_result: &[],
+            dkim2_result: None,
             dmarc_result: None,
             dmarc_policy: None,
             iprev_result: None,

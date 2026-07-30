@@ -128,7 +128,7 @@ impl GroupwareConfig {
                 .map(|d| d.into_inner().as_secs()),
             itip_http_rsvp_url: if sched.http_rsvp_enable {
                 if let Some(url) = sched
-                    .http_rsvp_template
+                    .http_rsvp_url
                     .as_deref()
                     .map(|v| v.trim().trim_end_matches('/'))
                     .filter(|v| !v.is_empty())

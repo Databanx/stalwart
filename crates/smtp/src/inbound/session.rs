@@ -67,7 +67,7 @@ impl<T: SessionStream> Session<T> {
                                 chunk_size,
                                 is_last,
                             } => {
-                                state = if chunk_size + self.data.message.len()
+                                state = if chunk_size.saturating_add(self.data.message.len())
                                     < self.params.max_message_size
                                 {
                                     if self.data.message.is_empty() {

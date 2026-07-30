@@ -9,8 +9,9 @@ use super::{
     Error, ErrorDetails, HostResponse, Message, MessageSource, QueueEnvelope, RCPT_DSN_SENT,
     Recipient, Status,
 };
+use crate::inbound::dkim::DkimSign;
+use crate::queue::spool::QueueParams;
 use crate::queue::{MessageWrapper, UnexpectedResponse};
-use crate::reporting::send::MtaReportSend;
 use common::Server;
 use mail_builder::MessageBuilder;
 use mail_builder::headers::HeaderType;
@@ -42,19 +43,18 @@ impl SendDsn for Server {
                     .expand_and_add_recipient(message.message.return_path.as_ref(), self)
                     .await;
 
-                // Sign message
-                let signature = self
-                    .sign_message(message, &self.core.smtp.queue.dsn.sign, &dsn)
-                    .await;
-
                 // Queue DSN
+                let dkim_signers = self
+                    .eval_signers(
+                        &self.core.smtp.queue.dsn.sign,
+                        &message.message,
+                        message.span_id,
+                    )
+                    .await;
                 dsn_message
                     .queue(
-                        signature.as_deref(),
-                        &dsn,
-                        message.span_id,
-                        self,
-                        MessageSource::Dsn,
+                        QueueParams::new(&dsn, message.span_id, self, MessageSource::Dsn)
+                            .with_dkim_signers(dkim_signers),
                     )
                     .await;
             }

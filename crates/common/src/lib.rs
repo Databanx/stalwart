@@ -18,7 +18,7 @@ use crate::{
             scripts::Scripting,
             spamfilter::{IpResolver, SpamClassifier, SpamFilterConfig},
         },
-        smtp::auth::DkimSigner,
+        smtp::auth::DkimSigners,
     },
     ipc::TrainTaskController,
     network::security::BlockedIps,
@@ -193,7 +193,7 @@ pub struct Caches {
     pub tenants: Cache<u32, Arc<TenantCache>>,
     pub lists: Cache<u32, Arc<MailingListCache>>,
 
-    pub dkim_signers: Cache<u32, Arc<[DkimSigner]>>,
+    pub dkim_signers: Cache<u32, Arc<DkimSigners>>,
 
     pub dns_txt: CacheWithTtl<Box<str>, Txt>,
     pub dns_mx: CacheWithTtl<Box<str>, RecordSet<MX>>,

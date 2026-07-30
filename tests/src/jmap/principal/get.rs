@@ -23,6 +23,9 @@ pub async fn test(test: &TestServer) {
 
     // Validate session object capabilities
     let response = john.jmap_session_object().await.into_inner();
+    let application_server_key =
+        response["capabilities"]["urn:ietf:params:jmap:webpush-vapid"]["applicationServerKey"]
+            .clone();
     response.assert_is_equal(json!({
       "capabilities": {
         "urn:ietf:params:jmap:core": {
@@ -54,6 +57,9 @@ pub async fn test(test: &TestServer) {
         },
         "urn:ietf:params:jmap:blob": {},
         "urn:ietf:params:jmap:quota": {},
+        "urn:ietf:params:jmap:webpush-vapid": {
+          "applicationServerKey": application_server_key
+        },
         "urn:ietf:params:jmap:websocket": {
           "url": "wss://127.0.0.1:8899/jmap/ws",
           "supportsPush": true
@@ -105,7 +111,7 @@ pub async fn test(test: &TestServer) {
             "urn:ietf:params:jmap:calendars": {
               "maxCalendarsPerEvent": null,
               "minDateTime": "0001-01-01T00:00:00Z",
-              "maxDateTime": "65534-12-31T23:59:59Z",
+              "maxDateTime": "9999-12-31T23:59:59Z",
               "maxExpandedQueryDuration": "P52W1D",
               "maxParticipantsPerEvent": 20,
               "mayCreateCalendar": true

@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.16.12] - 2026-06-XX
+## [0.16.15] - 2026-07-26
 
 If you are upgrading from v0.16.x, replace the binary (or run `docker pull`). If you are upgrading from v0.15.x and below, please read the [upgrading documentation](https://github.com/stalwartlabs/stalwart/blob/main/UPGRADING/v0_16.md) for more information on how to upgrade from previous versions.
 
@@ -11,7 +11,113 @@ If you are upgrading from v0.16.x, replace the binary (or run `docker pull`). If
 ## Changed
 
 ## Fixed
+- JMAP:
+  - `Email/copy` should return `alreadyExists` when copying a message to a mailbox that already contains it.
+  - `Email/copy` with `onSuccessDestroyOriginal` destroys the copy's creation id instead of the source Email id.
+  - `CalendarEvent/set` does not generate a `uid` on create when the client omits it.
+  - `CalendarEvent/set` does not refresh the `updated` property (iCalendar `DTSTAMP`) on create or update.
+  - `EmailSubmission/set` rejects valid recipients whose domain is itself a public suffix (e.g. `gov.in`, `co.uk`).
+  - Requests are rejected with `notRequest` when a method name contains a JSON-escaped solidus (e.g. `Core\/echo`).
+- MTA: Panic when MTA-STS is disabled and a remote MTA fetched `/.well-known/mta-sts.txt`.
+- Auth: Scoped credentials with `SysApiKeyCreate` or `SysApiKeyUpdate` permissions can regain its own account's full rights.
+- Web Push: Valid VAPID keys are rejected when PEM-encoded with explicit EC parameters, in SEC1 (`EC PRIVATE KEY`) format, or with a leading byte-order mark.
+- Encryption at rest: Appended messages are encrypted for accounts that did not opt in to `encryptOnAppend`.
+- Cache: Account caches silently discard entries larger than a single `quick-cache` shard, causing constant database rebuilds.
+- Registry: Id references (e.g. `#certificate-...`) fail to resolve on `defaultCertificateId`, `defaultAdminRoleIds`, `listenerIds` and `publicKey`.
+- Search: `reindex` drops calendar and contact index tasks for accounts with fewer than a full batch of items.
+- Migration: Abort `--import` when the target already contains data in the key range being imported.
+- Cluster: Broadcast subscriber re-subscribes after every message, losing bursts of cluster broadcasts during the reconnect window.
+- Enterprise: Per-tenant logo is not shown on the OAuth login password and OTP screens, which are served from the server's canonical host rather than the tenant domain.
+
+## [0.16.14] - 2026-07-20
+
+If you are upgrading from v0.16.x, replace the binary (or run `docker pull`). If you are upgrading from v0.15.x and below, please read the [upgrading documentation](https://github.com/stalwartlabs/stalwart/blob/main/UPGRADING/v0_16.md) for more information on how to upgrade from previous versions.
+
+## Added
+- Use of Voluntary Application Server Identification (VAPID) in JMAP Web Push ([RFC 9749](https://datatracker.ietf.org/doc/html/rfc9749)).
+
+## Changed
+
+## Fixed
+- IMAP:
+  - Mailbox object-quota only enforced in JMAP.
+  - Pipelined `STORE` and `EXPUNGE` can execute out of order.
+- JMAP: 
+  - Read-only sharee cannot set `isSubscribed` on a shared mailbox.
+  - Web Push payloads with `Content-Encoding: aes128gcm` should not be base64-encoded but sent as raw bytes.
+  - Stale push subscription can block verification of a new one.
+  - `PushSubscription/set` rejects the unpadded base64url keys the W3C Push API produces.
+  - `Email/import` does not send push notifications for imported messages.
+  - `CalendarEvent/set` silently ignores `ifInState`.
+- CalDAV: `calendar-query` REPORT returns empty calendar-data for JMAP-created events.
+- MTA: 
+  - DMARC is skipped when MAIL FROM SPF is unavailable.
+  - `queue_name` variable not available in rate limiter expressions.
+- Calendar: 
+  - No expanded occurrences are returned for a daily recurrences crossing DST.
+  - Uppercase `MAILTO` calendar addresses become invalid SMTP recipients.
+  - Scheduling invitations on a shared, non-owned calendar fail with `MAIL FROM unauthorized`.
+- HTTP: Disable `allowedEndpoints` expression in recovery mode.
+- Telemetry: Tasks are serialized to the wrong store when using separate stores for telemetry and data.
+
+## [0.16.13] - 2026-07-12
+
+If you are upgrading from v0.16.x, replace the binary (or run `docker pull`). If you are upgrading from v0.15.x and below, please read the [upgrading documentation](https://github.com/stalwartlabs/stalwart/blob/main/UPGRADING/v0_16.md) for more information on how to upgrade from previous versions.
+
+## Added
+- FreeBSD support.
+
+## Changed
+
+## Fixed
+- OAuth resource indicators: Accept `imap`, `smtp`, `pop3` and `sieve` as valid resource indicators for OAuth access tokens.
+- PostgreSQL: Incomplete channel binding implementation.
+- JMAP:
+  - VacationResponse: `isEnabled` reset to false whenever properties are changed.
+  - Capabilities: Return RFC-3339-conformant UTCDate literals in capabilities: min `0001-01-01T00:00:00Z`, max `9999-12-31T23:59:59Z`.
+- Directory: Update local groups only when the external directory includes a group attribute.
+- DNS Management: 
+  - CAA management deletes too third-party CAA entries.
+  - Multiple provider fixes (see `dns-update` crate changelog).
+- Reject invalid duration values (e.g. `1h30m`).
+- Branding: Custom logos for domains do not work.
+- Sieve: add `Received` headers to auto-generated messages and detect loops.
+- MTA: Resume queue processing does not work.
+- Misconfigured in-memory store cannot be recovered in recovery mode.
+
+## [0.16.12] - 2026-07-06
+
+If you are upgrading from v0.16.x, replace the binary (or run `docker pull`). If you are upgrading from v0.15.x and below, please read the [upgrading documentation](https://github.com/stalwartlabs/stalwart/blob/main/UPGRADING/v0_16.md) for more information on how to upgrade from previous versions.
+
+## Added
+- DKIM2 implementation ([draft-ietf-dkim-dkim2-spec-04](https://datatracker.ietf.org/doc/draft-ietf-dkim-dkim2-spec/)).
+- DMARCbis implementation:
+  - Domain-based Message Authentication, Reporting, and Conformance (DMARC) ([RFC 9989](https://datatracker.ietf.org/doc/html/rfc9989))
+  - DMARC Aggregate Reporting ([RFC 9990](https://datatracker.ietf.org/doc/html/rfc9990))
+  - DMARC Failure Reporting ([RFC 9991](https://datatracker.ietf.org/doc/html/rfc9991))
+
+## Changed
+
+## Fixed
 - DANE: Treat DNSSEC `bogus` as a temporary failures to prevent downgrade attacks.
+- OIDC provider: 
+  - `ECDSA` private key support for `SEC1` format.
+  - Allow ports in `redirect_uri` for loopback addresses.
+- OIDC directory: 
+  - Removing a user from all groups does not sync the changes correctly.
+  - Fetch `name` and `group` claims from userinfo endpoint when missing from the JWT token.
+- PostgreSQL: Include error chain in error messages.
+- Prometheus: event counters are exported with incorrect metric names.
+- Registry: Changing the type of an existing account from `user` to `group` panics.
+- Masked emails: Return `UnknownRecipient` only for disabled or expired masked emails.
+- IDN: `sanitize_email` rejects valid Punycode domains.
+- Auto-ban: IP block expiration ignores per-reason ban durations.
+- Meilisearch: Limit the text search scope using `attributesToSearchOn`.
+- CalDAV: `calendar-query` REPORT returns invalid HTTP `404` when no events match the query.
+- Snowflake past id generation fails when the provided duration is longer than 4 years.
+- Calendar scheduling: Wrong RSVP base URL is used.
+- Network listener: Accept loop spins all CPU cores with no back-off when the process hits `EMFILE` (too many open files).
+- Cluster: Broadcast MTA queue refresh events to all nodes.
 
 ## [0.16.11] - 2026-06-25
 

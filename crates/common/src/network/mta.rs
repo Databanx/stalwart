@@ -10,7 +10,7 @@ use crate::{
     config::{
         mailstore::spamfilter::SpamClassifier,
         smtp::{
-            auth::DkimSigner,
+            auth::DkimSigners,
             queue::{
                 ConnectionStrategy, DEFAULT_QUEUE_NAME, MxConfig, QueueExpiry, QueueName,
                 QueueStrategy, RequireOptional, RoutingStrategy, TlsStrategy, VirtualQueue,
@@ -76,14 +76,14 @@ impl Server {
         if self.is_enterprise_edition()
             && let Cow::Borrowed(addr) = &local_part
             && let Some(masked_id) = crate::enterprise::masked::MaskedAddress::parse(addr)
-        {
-            // Masked email resolution
-            return if let Some(masked_entry) = self
+            && let Some(masked_entry) = self
                 .registry()
                 .object::<MaskedEmail>(Id::new(masked_id))
                 .await
                 .caused_by(trc::location!())?
-                && masked_entry.enabled
+        {
+            // Masked email resolution
+            return if masked_entry.enabled
                 && masked_entry
                     .expires_at
                     .is_none_or(|at| at.timestamp() > now() as i64)
@@ -188,7 +188,7 @@ impl Server {
         &self,
         domain: &str,
         session_id: u64,
-    ) -> trc::Result<Option<Arc<[DkimSigner]>>> {
+    ) -> trc::Result<Option<Arc<DkimSigners>>> {
         if let Some(signers) = self.dkim_signers(domain).await? {
             Ok(Some(signers))
         } else {

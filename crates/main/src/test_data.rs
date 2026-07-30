@@ -172,7 +172,7 @@ fn sample_queued_messages(blob_hashes: Vec<BlobHash>) -> Vec<Message> {
             env_id: Some("env-001".into()),
             priority: 0,
             size: raw_messages[0].len() as u64,
-            quota_keys: Box::new([]),
+            metadata: Box::new([]),
         },
         // Message 2: DSN bounce message with a temporary failure recipient
         Message {
@@ -211,7 +211,7 @@ fn sample_queued_messages(blob_hashes: Vec<BlobHash>) -> Vec<Message> {
             env_id: None,
             priority: -5,
             size: raw_messages[1].len() as u64,
-            quota_keys: Box::new([]),
+            metadata: Box::new([]),
         },
         // Message 3: Report message with a temporary failure recipient
         Message {
@@ -243,7 +243,7 @@ fn sample_queued_messages(blob_hashes: Vec<BlobHash>) -> Vec<Message> {
             env_id: Some("env-report-99".into()),
             priority: 10,
             size: raw_messages[2].len() as u64,
-            quota_keys: Box::new([]),
+            metadata: Box::new([]),
         },
     ]
 }

@@ -73,7 +73,7 @@ impl SmtpConfig {
                 concat!(
                     "The configured DNS resolver cannot validate DNSSEC. ",
                     "DANE has been disabled to avoid deferring mail. ",
-                    "Configure a DNSSEC-validating resolver to enable DANE."
+                    "Ensure the resolver is DNSSEC-capable and reachable over TCP."
                 ),
             );
         }

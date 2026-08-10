@@ -1857,6 +1857,59 @@ impl<'de> serde::Deserialize<'de> for DirectoryType {
     }
 }
 
+impl EnumImpl for Dkim2Flag {
+    fn parse(value: &str) -> Option<Self> {
+        hashify::tiny_map! {
+            value.as_bytes(),
+            b"donotmodify" => Dkim2Flag::Donotmodify,
+            b"donotexplode" => Dkim2Flag::Donotexplode,
+            b"feedback" => Dkim2Flag::Feedback,
+        }
+    }
+
+    fn as_str(&self) -> &'static str {
+        match self {
+            Dkim2Flag::Donotmodify => "donotmodify",
+            Dkim2Flag::Donotexplode => "donotexplode",
+            Dkim2Flag::Feedback => "feedback",
+        }
+    }
+
+    fn to_id(&self) -> u16 {
+        *self as u16
+    }
+
+    fn from_id(id: u16) -> Option<Self> {
+        match id {
+            0 => Some(Dkim2Flag::Donotmodify),
+            1 => Some(Dkim2Flag::Donotexplode),
+            2 => Some(Dkim2Flag::Feedback),
+            _ => None,
+        }
+    }
+
+    const COUNT: usize = 3;
+}
+
+impl serde::Serialize for Dkim2Flag {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Dkim2Flag {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = Cow::<str>::deserialize(deserializer)?;
+        Self::parse(&s).ok_or_else(|| serde::de::Error::unknown_variant(&s, &[]))
+    }
+}
+
 impl EnumImpl for DkimAuthResult {
     fn parse(value: &str) -> Option<Self> {
         hashify::tiny_map! {
@@ -2140,6 +2193,8 @@ impl EnumImpl for DkimSignatureType {
             value.as_bytes(),
             b"Dkim1Ed25519Sha256" => DkimSignatureType::Dkim1Ed25519Sha256,
             b"Dkim1RsaSha256" => DkimSignatureType::Dkim1RsaSha256,
+            b"Dkim2Ed25519Sha256" => DkimSignatureType::Dkim2Ed25519Sha256,
+            b"Dkim2RsaSha256" => DkimSignatureType::Dkim2RsaSha256,
         }
     }
 
@@ -2147,6 +2202,8 @@ impl EnumImpl for DkimSignatureType {
         match self {
             DkimSignatureType::Dkim1Ed25519Sha256 => "Dkim1Ed25519Sha256",
             DkimSignatureType::Dkim1RsaSha256 => "Dkim1RsaSha256",
+            DkimSignatureType::Dkim2Ed25519Sha256 => "Dkim2Ed25519Sha256",
+            DkimSignatureType::Dkim2RsaSha256 => "Dkim2RsaSha256",
         }
     }
 
@@ -2158,11 +2215,13 @@ impl EnumImpl for DkimSignatureType {
         match id {
             0 => Some(DkimSignatureType::Dkim1Ed25519Sha256),
             1 => Some(DkimSignatureType::Dkim1RsaSha256),
+            2 => Some(DkimSignatureType::Dkim2Ed25519Sha256),
+            3 => Some(DkimSignatureType::Dkim2RsaSha256),
             _ => None,
         }
     }
 
-    const COUNT: usize = 2;
+    const COUNT: usize = 4;
 }
 
 impl serde::Serialize for DkimSignatureType {
@@ -2296,6 +2355,59 @@ impl<'de> serde::Deserialize<'de> for DmarcAlignment {
     }
 }
 
+impl EnumImpl for DmarcDiscovery {
+    fn parse(value: &str) -> Option<Self> {
+        hashify::tiny_map! {
+            value.as_bytes(),
+            b"psl" => DmarcDiscovery::Psl,
+            b"treewalk" => DmarcDiscovery::Treewalk,
+            b"unspecified" => DmarcDiscovery::Unspecified,
+        }
+    }
+
+    fn as_str(&self) -> &'static str {
+        match self {
+            DmarcDiscovery::Psl => "psl",
+            DmarcDiscovery::Treewalk => "treewalk",
+            DmarcDiscovery::Unspecified => "unspecified",
+        }
+    }
+
+    fn to_id(&self) -> u16 {
+        *self as u16
+    }
+
+    fn from_id(id: u16) -> Option<Self> {
+        match id {
+            0 => Some(DmarcDiscovery::Psl),
+            1 => Some(DmarcDiscovery::Treewalk),
+            2 => Some(DmarcDiscovery::Unspecified),
+            _ => None,
+        }
+    }
+
+    const COUNT: usize = 3;
+}
+
+impl serde::Serialize for DmarcDiscovery {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for DmarcDiscovery {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = Cow::<str>::deserialize(deserializer)?;
+        Self::parse(&s).ok_or_else(|| serde::de::Error::unknown_variant(&s, &[]))
+    }
+}
+
 impl EnumImpl for DmarcDisposition {
     fn parse(value: &str) -> Option<Self> {
         hashify::tiny_map! {
@@ -2362,6 +2474,7 @@ impl EnumImpl for DmarcPolicyOverride {
             b"MailingList" => DmarcPolicyOverride::MailingList,
             b"LocalPolicy" => DmarcPolicyOverride::LocalPolicy,
             b"Other" => DmarcPolicyOverride::Other,
+            b"PolicyTestMode" => DmarcPolicyOverride::PolicyTestMode,
         }
     }
 
@@ -2373,6 +2486,7 @@ impl EnumImpl for DmarcPolicyOverride {
             DmarcPolicyOverride::MailingList => "MailingList",
             DmarcPolicyOverride::LocalPolicy => "LocalPolicy",
             DmarcPolicyOverride::Other => "Other",
+            DmarcPolicyOverride::PolicyTestMode => "PolicyTestMode",
         }
     }
 
@@ -2388,11 +2502,12 @@ impl EnumImpl for DmarcPolicyOverride {
             3 => Some(DmarcPolicyOverride::MailingList),
             4 => Some(DmarcPolicyOverride::LocalPolicy),
             5 => Some(DmarcPolicyOverride::Other),
+            6 => Some(DmarcPolicyOverride::PolicyTestMode),
             _ => None,
         }
     }
 
-    const COUNT: usize = 6;
+    const COUNT: usize = 7;
 }
 
 impl serde::Serialize for DmarcPolicyOverride {
@@ -9019,6 +9134,62 @@ impl serde::Serialize for ProviderInfo {
 }
 
 impl<'de> serde::Deserialize<'de> for ProviderInfo {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = Cow::<str>::deserialize(deserializer)?;
+        Self::parse(&s).ok_or_else(|| serde::de::Error::unknown_variant(&s, &[]))
+    }
+}
+
+impl EnumImpl for PublicStringOptionalType {
+    fn parse(value: &str) -> Option<Self> {
+        hashify::tiny_map! {
+            value.as_bytes(),
+            b"None" => PublicStringOptionalType::None,
+            b"Value" => PublicStringOptionalType::Value,
+            b"EnvironmentVariable" => PublicStringOptionalType::EnvironmentVariable,
+            b"File" => PublicStringOptionalType::File,
+        }
+    }
+
+    fn as_str(&self) -> &'static str {
+        match self {
+            PublicStringOptionalType::None => "None",
+            PublicStringOptionalType::Value => "Value",
+            PublicStringOptionalType::EnvironmentVariable => "EnvironmentVariable",
+            PublicStringOptionalType::File => "File",
+        }
+    }
+
+    fn to_id(&self) -> u16 {
+        *self as u16
+    }
+
+    fn from_id(id: u16) -> Option<Self> {
+        match id {
+            0 => Some(PublicStringOptionalType::None),
+            1 => Some(PublicStringOptionalType::Value),
+            2 => Some(PublicStringOptionalType::EnvironmentVariable),
+            3 => Some(PublicStringOptionalType::File),
+            _ => None,
+        }
+    }
+
+    const COUNT: usize = 4;
+}
+
+impl serde::Serialize for PublicStringOptionalType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for PublicStringOptionalType {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,

@@ -14,6 +14,7 @@ use jsonwebtoken::{
     jwk::{self, JwkSet},
 };
 use reqwest::Client;
+use serde_json::Value;
 use std::time::Instant;
 use std::{sync::Arc, time::Duration};
 use trc::AuthEvent;
@@ -77,12 +78,38 @@ impl OpenIdDirectory {
 
                     self.validate_scopes(&token_data.claims)?;
 
-                    let (email, claims) = if let Ok(email) = self.resolve_email(&token_data.claims)
-                    {
-                        (email, token_data.claims)
-                    } else {
-                        let claims = self.fetch_userinfo(token).await?;
-                        (self.resolve_email(&claims)?, claims)
+                    let mut claims = token_data.claims;
+                    let jwt_email = self.resolve_email(&claims).ok();
+                    let missing_profile = self
+                        .config
+                        .claim_name
+                        .as_ref()
+                        .is_some_and(|claim| claims.get(claim).is_none())
+                        || self
+                            .config
+                            .claim_groups
+                            .as_ref()
+                            .is_some_and(|claim| claims.get(claim).is_none());
+
+                    if jwt_email.is_none() || missing_profile {
+                        match self.fetch_userinfo(token).await {
+                            Ok(userinfo) => {
+                                if let (Some(base), Value::Object(extra)) =
+                                    (claims.as_object_mut(), userinfo)
+                                {
+                                    for (key, value) in extra {
+                                        base.entry(key).or_insert_with(|| value);
+                                    }
+                                }
+                            }
+                            Err(err) if jwt_email.is_none() => return Err(err),
+                            Err(_) => {}
+                        }
+                    }
+
+                    let email = match jwt_email {
+                        Some(email) => email,
+                        None => self.resolve_email(&claims)?,
                     };
                     return self.build_account(email, &claims);
                 }
@@ -207,19 +234,18 @@ impl OpenIdDirectory {
             email,
             email_aliases: Vec::new(),
             secret: None,
-            groups: self
-                .config
-                .claim_groups
-                .as_ref()
-                .and_then(|groups_claim| claims.get(groups_claim))
-                .map(extract_string_list)
-                .unwrap_or_default()
-                .into_iter()
-                .map(|group| match &self.config.default_domain {
-                    Some(domain) if !group.contains('@') => format!("{group}@{domain}"),
-                    _ => group,
-                })
-                .collect(),
+            groups: self.config.claim_groups.as_ref().map(|groups_claim| {
+                claims
+                    .get(groups_claim)
+                    .map(extract_string_list)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|group| match &self.config.default_domain {
+                        Some(domain) if !group.contains('@') => format!("{group}@{domain}"),
+                        _ => group,
+                    })
+                    .collect()
+            }),
             description: self
                 .config
                 .claim_name

@@ -78,6 +78,7 @@ pub enum BroadcastEvent {
     CacheInvalidateAll,
     CacheInvalidateNegative,
     MtaQueueStatus { is_running: bool },
+    QueueRefresh,
 }
 
 #[derive(Debug, Clone, Copy)]

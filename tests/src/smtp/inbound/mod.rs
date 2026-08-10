@@ -24,6 +24,7 @@ pub mod asn;
 pub mod auth;
 pub mod basic;
 pub mod data;
+pub mod dkim2;
 pub mod dmarc;
 pub mod ehlo;
 pub mod limits;

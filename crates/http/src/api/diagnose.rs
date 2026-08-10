@@ -296,7 +296,9 @@ async fn delivery_diagnose(
         Err(err) => {
             if matches!(
                 &err,
-                smtp::outbound::mta_sts::Error::Dns(mail_auth::Error::DnsRecordNotFound(_))
+                smtp::outbound::mta_sts::Error::Dns(mail_auth::Error::Dns(
+                    mail_auth::DnsError::RecordNotFound(_)
+                ))
             ) {
                 tx.send(DeliveryStage::MtaStsNotFound {
                     elapsed: now.elapsed_ms(),
@@ -346,7 +348,10 @@ async fn delivery_diagnose(
             .await?;
         }
         Err(err) => {
-            if matches!(&err, mail_auth::Error::DnsRecordNotFound(_)) {
+            if matches!(
+                &err,
+                mail_auth::Error::Dns(mail_auth::DnsError::RecordNotFound(_))
+            ) {
                 tx.send(DeliveryStage::TlsRptNotFound {
                     elapsed: now.elapsed_ms(),
                 })
@@ -426,7 +431,10 @@ async fn delivery_diagnose(
                 None
             }
             Err(err) => {
-                if matches!(&err, mail_auth::Error::DnsRecordNotFound(_)) {
+                if matches!(
+                    &err,
+                    mail_auth::Error::Dns(mail_auth::DnsError::RecordNotFound(_))
+                ) {
                     tx.send(DeliveryStage::TlsaNotFound {
                         elapsed: now.elapsed_ms(),
                         reason: "No TLSA records found for MX".to_string(),

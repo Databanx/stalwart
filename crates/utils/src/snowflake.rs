@@ -63,8 +63,9 @@ impl SnowflakeIdGenerator {
         (SystemTime::UNIX_EPOCH + Duration::from_secs(DEFAULT_EPOCH))
             .elapsed()
             .ok()
-            .and_then(|elapsed| elapsed.checked_sub(period))
-            .map(|elapsed| (elapsed.as_millis() as u64) << (SEQUENCE_LEN + NODE_ID_LEN))
+            .map(|elapsed| {
+                (elapsed.saturating_sub(period).as_millis() as u64) << (SEQUENCE_LEN + NODE_ID_LEN)
+            })
     }
 
     pub fn from_timestamp(timestamp: u64) -> Option<u64> {
@@ -99,11 +100,9 @@ impl SnowflakeIdGenerator {
 
     #[inline(always)]
     pub fn past_id(&self, period: Duration) -> Option<u64> {
-        self.epoch
-            .elapsed()
-            .ok()
-            .and_then(|elapsed| elapsed.checked_sub(period))
-            .map(|elapsed| (elapsed.as_millis() as u64) << (SEQUENCE_LEN + NODE_ID_LEN))
+        self.epoch.elapsed().ok().map(|elapsed| {
+            (elapsed.saturating_sub(period).as_millis() as u64) << (SEQUENCE_LEN + NODE_ID_LEN)
+        })
     }
 
     pub fn is_valid(&self) -> bool {

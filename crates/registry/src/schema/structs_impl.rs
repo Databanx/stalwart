@@ -4048,7 +4048,7 @@ impl RegistryJsonPropertyPatch for BlockedIp {
 
 impl ObjectImpl for Bootstrap {
     const FLAGS: u64 = OBJ_SINGLETON;
-    const VERSION: u8 = 0;
+    const VERSION: u8 = 1;
     const OBJECT: ObjectType = ObjectType::Bootstrap;
 
     fn validate(&self, errors: &mut Vec<ValidationError>) -> bool {
@@ -7397,6 +7397,134 @@ impl RegistryJsonPropertyPatch for Dkim1Signature {
     }
 }
 
+impl Dkim2Signature {
+    fn validate(&self, errors: &mut Vec<ValidationError>) -> bool {
+        let neb = errors.len();
+        let value = &self.private_key;
+        value.validate(errors);
+        let value = &self.domain_id;
+        if !value.is_valid() {
+            errors.push(ValidationError::required(Property::DomainId));
+        }
+        if let Some(value) = &self.member_tenant_id {
+            if !value.is_valid() {
+                errors.push(ValidationError::required(Property::MemberTenantId));
+            }
+        }
+        let value = &self.selector;
+        if value.is_empty() {
+            errors.push(ValidationError::required(Property::Selector));
+        }
+        let value = &self.created_at;
+        if !value.is_valid() {
+            errors.push(ValidationError::invalid(Property::CreatedAt, value));
+        }
+        if let Some(value) = &self.next_transition_at {
+            if !value.is_valid() {
+                errors.push(ValidationError::invalid(Property::NextTransitionAt, value));
+            }
+        }
+        errors.len() == neb
+    }
+
+    fn index<'x>(&'x self, i: &mut IndexBuilder<'x>) {
+        i.foreign_key(ObjectType::Domain, self.domain_id.into(), None);
+        i.search(Property::DomainId, &self.domain_id);
+        i.foreign_key(ObjectType::Tenant, self.member_tenant_id, None);
+        if let Some(value) = &self.member_tenant_id {
+            i.search(Property::MemberTenantId, value);
+        }
+    }
+}
+
+impl Pickle for Dkim2Signature {
+    fn pickle(&self, out: &mut Vec<u8>) {
+        self.flags.pickle(out);
+        self.private_key.pickle(out);
+        self.domain_id.pickle(out);
+        self.member_tenant_id.pickle(out);
+        self.selector.pickle(out);
+        self.created_at.pickle(out);
+        self.next_transition_at.pickle(out);
+        self.stage.pickle(out);
+    }
+
+    fn unpickle(stream: &mut crate::pickle::PickledStream<'_>) -> Option<Self> {
+        let mut this = Self::default();
+        this.flags = Pickle::unpickle(stream)?;
+        this.private_key = Pickle::unpickle(stream)?;
+        this.domain_id = Pickle::unpickle(stream)?;
+        this.member_tenant_id = Pickle::unpickle(stream)?;
+        this.selector = Pickle::unpickle(stream)?;
+        this.created_at = Pickle::unpickle(stream)?;
+        this.next_transition_at = Pickle::unpickle(stream)?;
+        this.stage = Pickle::unpickle(stream)?;
+        Some(this)
+    }
+}
+
+impl Default for Dkim2Signature {
+    fn default() -> Self {
+        Self {
+            flags: Default::default(),
+            private_key: Default::default(),
+            domain_id: Default::default(),
+            member_tenant_id: Default::default(),
+            selector: Default::default(),
+            created_at: Default::default(),
+            next_transition_at: Default::default(),
+            stage: DkimRotationStage::Active,
+        }
+    }
+}
+
+impl IntoValue for Dkim2Signature {
+    fn into_value(self) -> JmapValue<'static> {
+        let mut map = jmap_tools::Map::with_capacity(10);
+        map.insert_unchecked(Property::Flags, self.flags.into_value());
+        map.insert_unchecked(Property::PrivateKey, self.private_key.into_value());
+        map.insert_unchecked(Property::DomainId, self.domain_id.into_value());
+        map.insert_unchecked(Property::MemberTenantId, self.member_tenant_id.into_value());
+        map.insert_unchecked(Property::Selector, self.selector.into_value());
+        map.insert_unchecked(Property::CreatedAt, self.created_at.into_value());
+        map.insert_unchecked(
+            Property::NextTransitionAt,
+            self.next_transition_at.into_value(),
+        );
+        map.insert_unchecked(Property::Stage, self.stage.into_value());
+        JmapValue::Object(map)
+    }
+}
+
+impl RegistryJsonPropertyPatch for Dkim2Signature {
+    fn patch_property<'x>(
+        &mut self,
+        mut pointer: JsonPointerPatch<'_>,
+        value: JmapValue<'x>,
+    ) -> PatchResult<'x> {
+        match pointer.next_property() {
+            Some(Property::Flags) => self.flags.patch(pointer, value),
+            Some(Property::PrivateKey) => self.private_key.patch(pointer, value),
+            Some(Property::PublicKey) => pointer.assert_server_set(),
+            Some(Property::DomainId) => self.domain_id.patch(pointer, value),
+            Some(Property::MemberTenantId) => self
+                .member_tenant_id
+                .patch(pointer.assert_can_set_tenant()?, value),
+            Some(Property::Selector) => self
+                .selector
+                .patch(pointer.with_validators(&[StringValidator::Trim]), value),
+            Some(Property::CreatedAt) => pointer.assert_server_set(),
+            Some(Property::NextTransitionAt) => self.next_transition_at.patch(pointer, value),
+            Some(Property::Stage) => self.stage.patch(pointer, value),
+            Some(Property::Type) => Ok(MaybeUnpatched::Unpatched {
+                property: Property::Type,
+                value,
+            }),
+            _ => Err(PatchError::new(pointer, "Invalid property")),
+        }
+    }
+}
+
 impl DkimManagement {
     fn validate(&self, errors: &mut Vec<ValidationError>) -> bool {
         match self {
@@ -7756,6 +7884,8 @@ impl ObjectImpl for DkimSignature {
         match self {
             DkimSignature::Dkim1Ed25519Sha256(inner) => inner.validate(errors),
             DkimSignature::Dkim1RsaSha256(inner) => inner.validate(errors),
+            DkimSignature::Dkim2Ed25519Sha256(inner) => inner.validate(errors),
+            DkimSignature::Dkim2RsaSha256(inner) => inner.validate(errors),
         }
     }
 
@@ -7765,6 +7895,12 @@ impl ObjectImpl for DkimSignature {
                 object.index(i);
             }
             DkimSignature::Dkim1RsaSha256(object) => {
+                object.index(i);
+            }
+            DkimSignature::Dkim2Ed25519Sha256(object) => {
+                object.index(i);
+            }
+            DkimSignature::Dkim2RsaSha256(object) => {
                 object.index(i);
             }
         }
@@ -7788,6 +7924,14 @@ impl Pickle for DkimSignature {
                 1u16.pickle(out);
                 inner.pickle(out);
             }
+            DkimSignature::Dkim2Ed25519Sha256(inner) => {
+                2u16.pickle(out);
+                inner.pickle(out);
+            }
+            DkimSignature::Dkim2RsaSha256(inner) => {
+                3u16.pickle(out);
+                inner.pickle(out);
+            }
         }
     }
 
@@ -7795,6 +7939,8 @@ impl Pickle for DkimSignature {
         match u16::unpickle(stream)? {
             0 => Pickle::unpickle(stream).map(DkimSignature::Dkim1Ed25519Sha256),
             1 => Pickle::unpickle(stream).map(DkimSignature::Dkim1RsaSha256),
+            2 => Pickle::unpickle(stream).map(DkimSignature::Dkim2Ed25519Sha256),
+            3 => Pickle::unpickle(stream).map(DkimSignature::Dkim2RsaSha256),
             _ => None,
         }
     }
@@ -7817,6 +7963,20 @@ impl IntoValue for DkimSignature {
                     .insert_unchecked(Property::Type, JmapValue::Str("Dkim1RsaSha256".into()));
                 obj
             }
+            DkimSignature::Dkim2Ed25519Sha256(obj) => {
+                let mut obj = obj.into_value();
+                obj.as_object_mut()
+                    .unwrap()
+                    .insert_unchecked(Property::Type, JmapValue::Str("Dkim2Ed25519Sha256".into()));
+                obj
+            }
+            DkimSignature::Dkim2RsaSha256(obj) => {
+                let mut obj = obj.into_value();
+                obj.as_object_mut()
+                    .unwrap()
+                    .insert_unchecked(Property::Type, JmapValue::Str("Dkim2RsaSha256".into()));
+                obj
+            }
         }
     }
 }
@@ -7835,11 +7995,19 @@ impl RegistryJsonPatch for DkimSignature {
                 DkimSignatureType::Dkim1RsaSha256 => {
                     *self = DkimSignature::Dkim1RsaSha256(Default::default())
                 }
+                DkimSignatureType::Dkim2Ed25519Sha256 => {
+                    *self = DkimSignature::Dkim2Ed25519Sha256(Default::default())
+                }
+                DkimSignatureType::Dkim2RsaSha256 => {
+                    *self = DkimSignature::Dkim2RsaSha256(Default::default())
+                }
             }
         }
         match self {
             DkimSignature::Dkim1Ed25519Sha256(inner) => inner.patch(pointer, value),
             DkimSignature::Dkim1RsaSha256(inner) => inner.patch(pointer, value),
+            DkimSignature::Dkim2Ed25519Sha256(inner) => inner.patch(pointer, value),
+            DkimSignature::Dkim2RsaSha256(inner) => inner.patch(pointer, value),
         }
     }
 }
@@ -7849,6 +8017,8 @@ impl DkimSignature {
         match self {
             DkimSignature::Dkim1Ed25519Sha256(_) => DkimSignatureType::Dkim1Ed25519Sha256,
             DkimSignature::Dkim1RsaSha256(_) => DkimSignatureType::Dkim1RsaSha256,
+            DkimSignature::Dkim2Ed25519Sha256(_) => DkimSignatureType::Dkim2Ed25519Sha256,
+            DkimSignature::Dkim2RsaSha256(_) => DkimSignatureType::Dkim2RsaSha256,
         }
     }
 }
@@ -8002,7 +8172,7 @@ impl RegistryJsonPropertyPatch for DmarcExtension {
 
 impl ObjectImpl for DmarcExternalReport {
     const FLAGS: u64 = OBJ_FILTER_TENANT;
-    const VERSION: u8 = 0;
+    const VERSION: u8 = 1;
     const OBJECT: ObjectType = ObjectType::DmarcExternalReport;
 
     fn validate(&self, errors: &mut Vec<ValidationError>) -> bool {
@@ -8127,7 +8297,7 @@ impl RegistryJsonPropertyPatch for DmarcExternalReport {
 
 impl ObjectImpl for DmarcInternalReport {
     const FLAGS: u64 = 0;
-    const VERSION: u8 = 0;
+    const VERSION: u8 = 1;
     const OBJECT: ObjectType = ObjectType::DmarcInternalReport;
 
     fn validate(&self, errors: &mut Vec<ValidationError>) -> bool {
@@ -8348,6 +8518,11 @@ impl DmarcReport {
         for value in value.values() {
             value.validate(errors);
         }
+        if let Some(value) = &self.generator {
+            if value.is_empty() {
+                errors.push(ValidationError::required(Property::Generator));
+            }
+        }
         errors.len() == neb
     }
 }
@@ -8372,6 +8547,9 @@ impl Pickle for DmarcReport {
         self.policy_failure_reporting_options.pickle(out);
         self.records.pickle(out);
         self.extensions.pickle(out);
+        self.generator.pickle(out);
+        self.policy_np.pickle(out);
+        self.policy_discovery_method.pickle(out);
     }
 
     fn unpickle(stream: &mut crate::pickle::PickledStream<'_>) -> Option<Self> {
@@ -8394,6 +8572,15 @@ impl Pickle for DmarcReport {
         this.policy_failure_reporting_options = Pickle::unpickle(stream)?;
         this.records = Pickle::unpickle(stream)?;
         this.extensions = Pickle::unpickle(stream)?;
+        if stream.version() >= 1 {
+            this.generator = Pickle::unpickle(stream)?;
+        }
+        if stream.version() >= 1 {
+            this.policy_np = Pickle::unpickle(stream)?;
+        }
+        if stream.version() >= 1 {
+            this.policy_discovery_method = Pickle::unpickle(stream)?;
+        }
         Some(this)
     }
 }
@@ -8419,13 +8606,16 @@ impl Default for DmarcReport {
             policy_failure_reporting_options: Default::default(),
             records: Default::default(),
             extensions: Default::default(),
+            generator: Default::default(),
+            policy_np: DmarcDisposition::Unspecified,
+            policy_discovery_method: DmarcDiscovery::Unspecified,
         }
     }
 }
 
 impl IntoValue for DmarcReport {
     fn into_value(self) -> JmapValue<'static> {
-        let mut map = jmap_tools::Map::with_capacity(20);
+        let mut map = jmap_tools::Map::with_capacity(23);
         map.insert_unchecked(Property::Version, self.version.into_value());
         map.insert_unchecked(Property::OrgName, self.org_name.into_value());
         map.insert_unchecked(Property::Email, self.email.into_value());
@@ -8459,6 +8649,12 @@ impl IntoValue for DmarcReport {
         );
         map.insert_unchecked(Property::Records, self.records.into_value());
         map.insert_unchecked(Property::Extensions, self.extensions.into_value());
+        map.insert_unchecked(Property::Generator, self.generator.into_value());
+        map.insert_unchecked(Property::PolicyNp, self.policy_np.into_value());
+        map.insert_unchecked(
+            Property::PolicyDiscoveryMethod,
+            self.policy_discovery_method.into_value(),
+        );
         JmapValue::Object(map)
     }
 }
@@ -8494,6 +8690,11 @@ impl RegistryJsonPropertyPatch for DmarcReport {
             }
             Some(Property::Records) => self.records.patch(pointer, value),
             Some(Property::Extensions) => self.extensions.patch(pointer, value),
+            Some(Property::Generator) => self.generator.patch(pointer, value),
+            Some(Property::PolicyNp) => self.policy_np.patch(pointer, value),
+            Some(Property::PolicyDiscoveryMethod) => {
+                self.policy_discovery_method.patch(pointer, value)
+            }
             Some(Property::Type) => Ok(MaybeUnpatched::Unpatched {
                 property: Property::Type,
                 value,
@@ -9169,6 +9370,12 @@ impl DmarcTroubleshoot {
         if value.is_empty() {
             errors.push(ValidationError::required(Property::MailFrom));
         }
+        let value = &self.to;
+        for value in value.iter() {
+            if value.is_empty() {
+                errors.push(ValidationError::required(Property::To));
+            }
+        }
         if let Some(value) = &self.message {
             if value.is_empty() {
                 errors.push(ValidationError::required(Property::Message));
@@ -9198,6 +9405,8 @@ impl DmarcTroubleshoot {
         for value in value.values() {
             value.validate(errors);
         }
+        let value = &self.dkim2_result;
+        value.validate(errors);
         let value = &self.arc_result;
         value.validate(errors);
         let value = &self.dmarc_result;
@@ -9211,6 +9420,7 @@ impl Pickle for DmarcTroubleshoot {
         self.remote_ip.pickle(out);
         self.ehlo_domain.pickle(out);
         self.mail_from.pickle(out);
+        self.to.pickle(out);
         self.message.pickle(out);
         self.spf_ehlo_domain.pickle(out);
         self.spf_ehlo_result.pickle(out);
@@ -9220,6 +9430,8 @@ impl Pickle for DmarcTroubleshoot {
         self.ip_rev_ptr.pickle(out);
         self.dkim_results.pickle(out);
         self.dkim_pass.pickle(out);
+        self.dkim2_result.pickle(out);
+        self.dkim2_pass.pickle(out);
         self.arc_result.pickle(out);
         self.dmarc_result.pickle(out);
         self.dmarc_pass.pickle(out);
@@ -9232,6 +9444,7 @@ impl Pickle for DmarcTroubleshoot {
         this.remote_ip = Pickle::unpickle(stream)?;
         this.ehlo_domain = Pickle::unpickle(stream)?;
         this.mail_from = Pickle::unpickle(stream)?;
+        this.to = Pickle::unpickle(stream)?;
         this.message = Pickle::unpickle(stream)?;
         this.spf_ehlo_domain = Pickle::unpickle(stream)?;
         this.spf_ehlo_result = Pickle::unpickle(stream)?;
@@ -9241,6 +9454,8 @@ impl Pickle for DmarcTroubleshoot {
         this.ip_rev_ptr = Pickle::unpickle(stream)?;
         this.dkim_results = Pickle::unpickle(stream)?;
         this.dkim_pass = Pickle::unpickle(stream)?;
+        this.dkim2_result = Pickle::unpickle(stream)?;
+        this.dkim2_pass = Pickle::unpickle(stream)?;
         this.arc_result = Pickle::unpickle(stream)?;
         this.dmarc_result = Pickle::unpickle(stream)?;
         this.dmarc_pass = Pickle::unpickle(stream)?;
@@ -9256,6 +9471,7 @@ impl Default for DmarcTroubleshoot {
             remote_ip: Default::default(),
             ehlo_domain: Default::default(),
             mail_from: Default::default(),
+            to: Default::default(),
             message: Default::default(),
             spf_ehlo_domain: Default::default(),
             spf_ehlo_result: Default::default(),
@@ -9265,6 +9481,8 @@ impl Default for DmarcTroubleshoot {
             ip_rev_ptr: Default::default(),
             dkim_results: Default::default(),
             dkim_pass: false,
+            dkim2_result: Default::default(),
+            dkim2_pass: false,
             arc_result: Default::default(),
             dmarc_result: Default::default(),
             dmarc_pass: false,
@@ -9276,10 +9494,11 @@ impl Default for DmarcTroubleshoot {
 
 impl IntoValue for DmarcTroubleshoot {
     fn into_value(self) -> JmapValue<'static> {
-        let mut map = jmap_tools::Map::with_capacity(19);
+        let mut map = jmap_tools::Map::with_capacity(22);
         map.insert_unchecked(Property::RemoteIp, self.remote_ip.into_value());
         map.insert_unchecked(Property::EhloDomain, self.ehlo_domain.into_value());
         map.insert_unchecked(Property::MailFrom, self.mail_from.into_value());
+        map.insert_unchecked(Property::To, self.to.into_value());
         map.insert_unchecked(Property::Message, self.message.into_value());
         map.insert_unchecked(Property::SpfEhloDomain, self.spf_ehlo_domain.into_value());
         map.insert_unchecked(Property::SpfEhloResult, self.spf_ehlo_result.into_value());
@@ -9295,6 +9514,8 @@ impl IntoValue for DmarcTroubleshoot {
         map.insert_unchecked(Property::IpRevPtr, self.ip_rev_ptr.into_value());
         map.insert_unchecked(Property::DkimResults, self.dkim_results.into_value());
         map.insert_unchecked(Property::DkimPass, self.dkim_pass.into_value());
+        map.insert_unchecked(Property::Dkim2Result, self.dkim2_result.into_value());
+        map.insert_unchecked(Property::Dkim2Pass, self.dkim2_pass.into_value());
         map.insert_unchecked(Property::ArcResult, self.arc_result.into_value());
         map.insert_unchecked(Property::DmarcResult, self.dmarc_result.into_value());
         map.insert_unchecked(Property::DmarcPass, self.dmarc_pass.into_value());
@@ -9316,6 +9537,9 @@ impl RegistryJsonPropertyPatch for DmarcTroubleshoot {
             Some(Property::MailFrom) => self
                 .mail_from
                 .patch(pointer.with_validators(&[StringValidator::Email]), value),
+            Some(Property::To) => self
+                .to
+                .patch(pointer.with_validators(&[StringValidator::Email]), value),
             Some(Property::Message) => self.message.patch(pointer, value),
             Some(Property::SpfEhloDomain) => self.spf_ehlo_domain.patch(pointer, value),
             Some(Property::SpfEhloResult) => pointer.assert_server_set(),
@@ -9325,6 +9549,8 @@ impl RegistryJsonPropertyPatch for DmarcTroubleshoot {
             Some(Property::IpRevPtr) => pointer.assert_server_set(),
             Some(Property::DkimResults) => pointer.assert_server_set(),
             Some(Property::DkimPass) => pointer.assert_server_set(),
+            Some(Property::Dkim2Result) => pointer.assert_server_set(),
+            Some(Property::Dkim2Pass) => pointer.assert_server_set(),
             Some(Property::ArcResult) => pointer.assert_server_set(),
             Some(Property::DmarcResult) => pointer.assert_server_set(),
             Some(Property::DmarcPass) => pointer.assert_server_set(),
@@ -22572,7 +22798,7 @@ impl InMemoryStoreBase {
 
 impl ObjectImpl for Jmap {
     const FLAGS: u64 = OBJ_SINGLETON;
-    const VERSION: u8 = 0;
+    const VERSION: u8 = 2;
     const OBJECT: ObjectType = ObjectType::Jmap;
 
     fn validate(&self, errors: &mut Vec<ValidationError>) -> bool {
@@ -22662,6 +22888,17 @@ impl ObjectImpl for Jmap {
                 errors.push(ValidationError::min_value(Property::MaxSubscriptions, 1));
             }
         }
+        let value = &self.web_push_key;
+        value.validate(errors);
+        if let Some(value) = &self.web_push_contact {
+            if value.is_empty() {
+                errors.push(ValidationError::required(Property::WebPushContact));
+            }
+        }
+        let value = &self.max_push_size;
+        if *value < 512 {
+            errors.push(ValidationError::min_value(Property::MaxPushSize, 512));
+        }
         errors.len() == neb
     }
 
@@ -22698,6 +22935,9 @@ impl Pickle for Jmap {
         self.websocket_throttle.pickle(out);
         self.websocket_timeout.pickle(out);
         self.max_subscriptions.pickle(out);
+        self.web_push_key.pickle(out);
+        self.web_push_contact.pickle(out);
+        self.max_push_size.pickle(out);
         self.snippet_concurrency.pickle(out);
     }
 
@@ -22731,7 +22971,16 @@ impl Pickle for Jmap {
         this.websocket_throttle = Pickle::unpickle(stream)?;
         this.websocket_timeout = Pickle::unpickle(stream)?;
         this.max_subscriptions = Pickle::unpickle(stream)?;
-        // Field added after the initial schema. Default to 8 when missing so
+        if stream.version() >= 1 {
+            this.web_push_key = Pickle::unpickle(stream)?;
+        }
+        if stream.version() >= 1 {
+            this.web_push_contact = Pickle::unpickle(stream)?;
+        }
+        if stream.version() >= 2 {
+            this.max_push_size = Pickle::unpickle(stream)?;
+        }
+        // Fork-only field, always pickled last. Default to 8 when missing so
         // pickled streams written before this field existed still round-trip.
         this.snippet_concurrency = Pickle::unpickle(stream).unwrap_or(8u64);
         Some(this)
@@ -22770,13 +23019,16 @@ impl Default for Jmap {
             websocket_throttle: Duration::from_millis(1000),
             websocket_timeout: Duration::from_millis(600000),
             max_subscriptions: Some(15u64),
+            web_push_key: Default::default(),
+            web_push_contact: Default::default(),
+            max_push_size: 4096u64,
         }
     }
 }
 
 impl IntoValue for Jmap {
     fn into_value(self) -> JmapValue<'static> {
-        let mut map = jmap_tools::Map::with_capacity(31);
+        let mut map = jmap_tools::Map::with_capacity(34);
         map.insert_unchecked(
             Property::ParseLimitEvent,
             self.parse_limit_event.into_value(),
@@ -22863,6 +23115,9 @@ impl IntoValue for Jmap {
             Property::MaxSubscriptions,
             self.max_subscriptions.into_value(),
         );
+        map.insert_unchecked(Property::WebPushKey, self.web_push_key.into_value());
+        map.insert_unchecked(Property::WebPushContact, self.web_push_contact.into_value());
+        map.insert_unchecked(Property::MaxPushSize, self.max_push_size.into_value());
         JmapValue::Object(map)
     }
 }
@@ -22907,6 +23162,11 @@ impl RegistryJsonPropertyPatch for Jmap {
             Some(Property::WebsocketThrottle) => self.websocket_throttle.patch(pointer, value),
             Some(Property::WebsocketTimeout) => self.websocket_timeout.patch(pointer, value),
             Some(Property::MaxSubscriptions) => self.max_subscriptions.patch(pointer, value),
+            Some(Property::WebPushKey) => self.web_push_key.patch(pointer, value),
+            Some(Property::WebPushContact) => self
+                .web_push_contact
+                .patch(pointer.with_validators(&[StringValidator::Trim]), value),
+            Some(Property::MaxPushSize) => self.max_push_size.patch(pointer, value),
             Some(Property::Type) => Ok(MaybeUnpatched::Unpatched {
                 property: Property::Type,
                 value,
@@ -31091,6 +31351,188 @@ impl RegistryJsonPropertyPatch for PublicKey {
     }
 }
 
+impl PublicStringOptional {
+    fn validate(&self, errors: &mut Vec<ValidationError>) -> bool {
+        match self {
+            PublicStringOptional::None => true,
+            PublicStringOptional::Value(inner) => inner.validate(errors),
+            PublicStringOptional::EnvironmentVariable(inner) => inner.validate(errors),
+            PublicStringOptional::File(inner) => inner.validate(errors),
+        }
+    }
+}
+
+impl Default for PublicStringOptional {
+    fn default() -> Self {
+        PublicStringOptional::None
+    }
+}
+
+impl Pickle for PublicStringOptional {
+    fn pickle(&self, out: &mut Vec<u8>) {
+        match self {
+            PublicStringOptional::None => {
+                0u16.pickle(out);
+            }
+            PublicStringOptional::Value(inner) => {
+                1u16.pickle(out);
+                inner.pickle(out);
+            }
+            PublicStringOptional::EnvironmentVariable(inner) => {
+                2u16.pickle(out);
+                inner.pickle(out);
+            }
+            PublicStringOptional::File(inner) => {
+                3u16.pickle(out);
+                inner.pickle(out);
+            }
+        }
+    }
+
+    fn unpickle(stream: &mut crate::pickle::PickledStream<'_>) -> Option<Self> {
+        match u16::unpickle(stream)? {
+            0 => Some(PublicStringOptional::None),
+            1 => Pickle::unpickle(stream).map(PublicStringOptional::Value),
+            2 => Pickle::unpickle(stream).map(PublicStringOptional::EnvironmentVariable),
+            3 => Pickle::unpickle(stream).map(PublicStringOptional::File),
+            _ => None,
+        }
+    }
+}
+
+impl IntoValue for PublicStringOptional {
+    fn into_value(self) -> JmapValue<'static> {
+        match self {
+            PublicStringOptional::None => {
+                let mut obj = jmap_tools::Map::new();
+                obj.insert_unchecked(Property::Type, JmapValue::Str("None".into()));
+                JmapValue::Object(obj)
+            }
+            PublicStringOptional::Value(obj) => {
+                let mut obj = obj.into_value();
+                obj.as_object_mut()
+                    .unwrap()
+                    .insert_unchecked(Property::Type, JmapValue::Str("Value".into()));
+                obj
+            }
+            PublicStringOptional::EnvironmentVariable(obj) => {
+                let mut obj = obj.into_value();
+                obj.as_object_mut()
+                    .unwrap()
+                    .insert_unchecked(Property::Type, JmapValue::Str("EnvironmentVariable".into()));
+                obj
+            }
+            PublicStringOptional::File(obj) => {
+                let mut obj = obj.into_value();
+                obj.as_object_mut()
+                    .unwrap()
+                    .insert_unchecked(Property::Type, JmapValue::Str("File".into()));
+                obj
+            }
+        }
+    }
+}
+
+impl RegistryJsonPatch for PublicStringOptional {
+    fn patch<'x>(
+        &mut self,
+        pointer: JsonPointerPatch<'_>,
+        value: JmapValue<'x>,
+    ) -> PatchResult<'x> {
+        if !pointer.has_next() {
+            match object_type(&pointer, &value)? {
+                PublicStringOptionalType::None => *self = PublicStringOptional::None,
+                PublicStringOptionalType::Value => {
+                    *self = PublicStringOptional::Value(Default::default())
+                }
+                PublicStringOptionalType::EnvironmentVariable => {
+                    *self = PublicStringOptional::EnvironmentVariable(Default::default())
+                }
+                PublicStringOptionalType::File => {
+                    *self = PublicStringOptional::File(Default::default())
+                }
+            }
+        }
+        match self {
+            PublicStringOptional::None => pointer.assert_eof(),
+            PublicStringOptional::Value(inner) => inner.patch(pointer, value),
+            PublicStringOptional::EnvironmentVariable(inner) => inner.patch(pointer, value),
+            PublicStringOptional::File(inner) => inner.patch(pointer, value),
+        }
+    }
+}
+
+impl PublicStringOptional {
+    pub fn object_type(&self) -> PublicStringOptionalType {
+        match self {
+            PublicStringOptional::None => PublicStringOptionalType::None,
+            PublicStringOptional::Value(_) => PublicStringOptionalType::Value,
+            PublicStringOptional::EnvironmentVariable(_) => {
+                PublicStringOptionalType::EnvironmentVariable
+            }
+            PublicStringOptional::File(_) => PublicStringOptionalType::File,
+        }
+    }
+}
+
+impl PublicStringValue {
+    fn validate(&self, errors: &mut Vec<ValidationError>) -> bool {
+        let neb = errors.len();
+        let value = &self.value;
+        if value.is_empty() {
+            errors.push(ValidationError::required(Property::Value));
+        }
+        errors.len() == neb
+    }
+}
+
+impl Pickle for PublicStringValue {
+    fn pickle(&self, out: &mut Vec<u8>) {
+        self.value.pickle(out);
+    }
+
+    fn unpickle(stream: &mut crate::pickle::PickledStream<'_>) -> Option<Self> {
+        let mut this = Self::default();
+        this.value = Pickle::unpickle(stream)?;
+        Some(this)
+    }
+}
+
+impl Default for PublicStringValue {
+    fn default() -> Self {
+        Self {
+            value: Default::default(),
+        }
+    }
+}
+
+impl IntoValue for PublicStringValue {
+    fn into_value(self) -> JmapValue<'static> {
+        let mut map = jmap_tools::Map::with_capacity(3);
+        map.insert_unchecked(Property::Value, self.value.into_value());
+        JmapValue::Object(map)
+    }
+}
+
+impl RegistryJsonPropertyPatch for PublicStringValue {
+    fn patch_property<'x>(
+        &mut self,
+        mut pointer: JsonPointerPatch<'_>,
+        value: JmapValue<'x>,
+    ) -> PatchResult<'x> {
+        match pointer.next_property() {
+            Some(Property::Value) => self
+                .value
+                .patch(pointer.with_validators(&[StringValidator::Trim]), value),
+            Some(Property::Type) => Ok(MaybeUnpatched::Unpatched {
+                property: Property::Type,
+                value,
+            }),
+            _ => Err(PatchError::new(pointer, "Invalid property")),
+        }
+    }
+}
+
 impl PublicText {
     fn validate(&self, errors: &mut Vec<ValidationError>) -> bool {
         match self {
@@ -32817,11 +33259,8 @@ impl S3Store {
         if value.is_empty() {
             errors.push(ValidationError::required(Property::Bucket));
         }
-        if let Some(value) = &self.access_key {
-            if value.is_empty() {
-                errors.push(ValidationError::required(Property::AccessKey));
-            }
-        }
+        let value = &self.access_key;
+        value.validate(errors);
         let value = &self.secret_key;
         value.validate(errors);
         let value = &self.security_token;
@@ -32940,9 +33379,7 @@ impl RegistryJsonPropertyPatch for S3Store {
             Some(Property::Bucket) => self
                 .bucket
                 .patch(pointer.with_validators(&[StringValidator::Trim]), value),
-            Some(Property::AccessKey) => self
-                .access_key
-                .patch(pointer.with_validators(&[StringValidator::Trim]), value),
+            Some(Property::AccessKey) => self.access_key.patch(pointer, value),
             Some(Property::SecretKey) => self.secret_key.patch(pointer, value),
             Some(Property::SecurityToken) => self.security_token.patch(pointer, value),
             Some(Property::SessionToken) => self.session_token.patch(pointer, value),
@@ -36055,7 +36492,7 @@ impl Default for SieveUserInterpreter {
             max_nested_includes: 3u64,
             max_nested_tests: 15u64,
             max_out_messages: 3u64,
-            max_received_headers: 10u64,
+            max_received_headers: 50u64,
             max_redirects: 1u64,
             max_script_size: 102400,
             max_string_length: 4096u64,

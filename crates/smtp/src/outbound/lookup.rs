@@ -116,7 +116,7 @@ impl DnsLookup for Server {
                 )
                 .await
                 .map_err(|err| {
-                    if let mail_auth::Error::DnsRecordNotFound(_) = &err {
+                    if let mail_auth::Error::Dns(mail_auth::DnsError::RecordNotFound(_)) = &err {
                         if matches!(
                             remote_host,
                             NextHop::MX {

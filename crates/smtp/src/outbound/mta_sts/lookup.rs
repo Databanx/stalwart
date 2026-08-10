@@ -114,10 +114,10 @@ impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::Dns(err) => match err {
-                mail_auth::Error::DnsRecordNotFound(code) => {
+                mail_auth::Error::Dns(mail_auth::DnsError::RecordNotFound(code)) => {
                     write!(f, "Record not found: {code:?}")
                 }
-                mail_auth::Error::InvalidRecordType => {
+                mail_auth::Error::Dns(mail_auth::DnsError::InvalidRecordType) => {
                     f.write_str("Failed to parse MTA-STS DNS record.")
                 }
                 _ => write!(f, "DNS lookup error: {err}"),

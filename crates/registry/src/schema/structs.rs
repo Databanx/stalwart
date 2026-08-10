@@ -969,6 +969,27 @@ pub struct Dkim1Signature {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Dkim2Signature {
+    #[serde(rename = "flags")]
+    pub flags: Map<Dkim2Flag>,
+    #[serde(rename = "privateKey")]
+    pub private_key: SecretText,
+    #[serde(rename = "domainId")]
+    pub domain_id: Id,
+    #[serde(rename = "memberTenantId")]
+    pub member_tenant_id: Option<Id>,
+    #[serde(rename = "selector")]
+    pub selector: String,
+    #[serde(rename = "createdAt")]
+    pub created_at: UTCDateTime,
+    #[serde(rename = "nextTransitionAt")]
+    pub next_transition_at: Option<UTCDateTime>,
+    #[serde(rename = "stage")]
+    pub stage: DkimRotationStage,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "@type")]
 pub enum DkimManagement {
     Automatic(DkimManagementProperties),
@@ -1010,6 +1031,8 @@ pub struct DkimReportSettings {
 pub enum DkimSignature {
     Dkim1Ed25519Sha256(Dkim1Signature),
     Dkim1RsaSha256(Dkim1Signature),
+    Dkim2Ed25519Sha256(Dkim2Signature),
+    Dkim2RsaSha256(Dkim2Signature),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1118,6 +1141,12 @@ pub struct DmarcReport {
     pub records: List<DmarcReportRecord>,
     #[serde(rename = "extensions")]
     pub extensions: List<DmarcExtension>,
+    #[serde(rename = "generator")]
+    pub generator: Option<String>,
+    #[serde(rename = "policyNp")]
+    pub policy_np: DmarcDisposition,
+    #[serde(rename = "policyDiscoveryMethod")]
+    pub policy_discovery_method: DmarcDiscovery,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1202,6 +1231,8 @@ pub struct DmarcTroubleshoot {
     pub ehlo_domain: String,
     #[serde(rename = "mailFrom")]
     pub mail_from: String,
+    #[serde(rename = "to")]
+    pub to: Map<String>,
     #[serde(rename = "message")]
     pub message: Option<String>,
     #[serde(rename = "spfEhloDomain")]
@@ -1220,6 +1251,10 @@ pub struct DmarcTroubleshoot {
     pub dkim_results: List<DmarcTroubleshootAuthResult>,
     #[serde(rename = "dkimPass")]
     pub dkim_pass: bool,
+    #[serde(rename = "dkim2Result")]
+    pub dkim2_result: DmarcTroubleshootAuthResult,
+    #[serde(rename = "dkim2Pass")]
+    pub dkim2_pass: bool,
     #[serde(rename = "arcResult")]
     pub arc_result: DmarcTroubleshootAuthResult,
     #[serde(rename = "dmarcResult")]
@@ -3148,6 +3183,12 @@ pub struct Jmap {
     pub websocket_timeout: Duration,
     #[serde(rename = "maxSubscriptions")]
     pub max_subscriptions: Option<u64>,
+    #[serde(rename = "webPushKey")]
+    pub web_push_key: SecretTextOptional,
+    #[serde(rename = "webPushContact")]
+    pub web_push_contact: Option<String>,
+    #[serde(rename = "maxPushSize")]
+    pub max_push_size: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -4197,6 +4238,22 @@ pub struct PublicKey {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "@type")]
+pub enum PublicStringOptional {
+    None,
+    Value(PublicStringValue),
+    EnvironmentVariable(SecretKeyEnvironmentVariable),
+    File(SecretKeyFile),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PublicStringValue {
+    #[serde(rename = "value")]
+    pub value: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "@type")]
 pub enum PublicText {
     Text(PublicTextValue),
     EnvironmentVariable(SecretKeyEnvironmentVariable),
@@ -4434,7 +4491,7 @@ pub struct S3Store {
     #[serde(rename = "bucket")]
     pub bucket: String,
     #[serde(rename = "accessKey")]
-    pub access_key: Option<String>,
+    pub access_key: PublicStringOptional,
     #[serde(rename = "secretKey")]
     pub secret_key: SecretKeyOptional,
     #[serde(rename = "securityToken")]

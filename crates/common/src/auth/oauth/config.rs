@@ -5,7 +5,7 @@
  */
 
 use crate::{
-    config::{build_ecdsa_pem, build_rsa_keypair},
+    config::{EcKeyCurve, build_ecdsa_pem, build_rsa_keypair},
     manager::application::Resource,
 };
 use biscuit::{
@@ -197,19 +197,22 @@ async fn parse_ecdsa_key(
     auth: &OidcProvider,
     oidc_signature_algorithm: SignatureAlgorithm,
 ) -> Result<(Secret, AlgorithmParameters), String> {
-    let (alg, curve) = match oidc_signature_algorithm {
+    let (alg, curve, ec_curve) = match oidc_signature_algorithm {
         SignatureAlgorithm::ES256 => (
             &signature::ECDSA_P256_SHA256_FIXED_SIGNING,
             EllipticCurve::P256,
+            EcKeyCurve::P256,
         ),
         SignatureAlgorithm::ES384 => (
             &signature::ECDSA_P384_SHA384_FIXED_SIGNING,
             EllipticCurve::P384,
+            EcKeyCurve::P384,
         ),
         _ => unreachable!(),
     };
 
-    let ecdsa_key_pair = build_ecdsa_pem(alg, auth.signature_key.secret().await?.as_ref())?;
+    let ecdsa_key_pair =
+        build_ecdsa_pem(alg, ec_curve, auth.signature_key.secret().await?.as_ref())?;
     let ecdsa_public_key = ecdsa_key_pair.public_key().as_ref();
 
     let (x, y) = match oidc_signature_algorithm {

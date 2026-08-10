@@ -21,10 +21,10 @@ pub async fn generate_dkim_private_key(
     key_type: DkimSignatureType,
 ) -> trc::Result<Result<String, String>> {
     let private_key = tokio::task::spawn_blocking(move || match key_type {
-        DkimSignatureType::Dkim1RsaSha256 => {
+        DkimSignatureType::Dkim1RsaSha256 | DkimSignatureType::Dkim2RsaSha256 => {
             DkimKeyPair::generate_rsa(2048).map(|key| (key, "RSA PRIVATE KEY"))
         }
-        DkimSignatureType::Dkim1Ed25519Sha256 => {
+        DkimSignatureType::Dkim1Ed25519Sha256 | DkimSignatureType::Dkim2Ed25519Sha256 => {
             DkimKeyPair::generate_ed25519().map(|key| (key, "PRIVATE KEY"))
         }
     })
@@ -58,13 +58,18 @@ pub async fn generate_dkim_private_key(
 }
 
 pub async fn generate_dkim_public_key(key: &DkimSignature) -> trc::Result<String> {
-    match key {
-        DkimSignature::Dkim1RsaSha256(key) => key
-            .private_key
-            .secret()
-            .await
-            .map_err(|err| trc::DkimEvent::BuildError.reason(err))
-            .and_then(|pem| rsa_key_parse(pem.as_bytes()))
+    let is_rsa = matches!(
+        key,
+        DkimSignature::Dkim1RsaSha256(_) | DkimSignature::Dkim2RsaSha256(_)
+    );
+    let pem = key
+        .private_key()
+        .secret()
+        .await
+        .map_err(|err| trc::DkimEvent::BuildError.reason(err))?;
+
+    if is_rsa {
+        rsa_key_parse(pem.as_bytes())
             .and_then(|pk| {
                 Document::from_pkcs1_der(&pk.public_key()).map_err(|err| {
                     trc::EventType::Dkim(trc::DkimEvent::BuildError)
@@ -75,18 +80,13 @@ pub async fn generate_dkim_public_key(key: &DkimSignature) -> trc::Result<String
             .map(|pk| {
                 String::from_utf8(base64_encode(pk.as_bytes()).unwrap_or_default())
                     .unwrap_or_default()
-            }),
-        DkimSignature::Dkim1Ed25519Sha256(key) => key
-            .private_key
-            .secret()
-            .await
-            .map_err(|err| trc::DkimEvent::BuildError.reason(err))
-            .and_then(|pem| {
-                simple_pem_parse(&pem).ok_or_else(|| {
-                    trc::EventType::Dkim(trc::DkimEvent::BuildError)
-                        .into_err()
-                        .details("Failed to parse private key PEM")
-                })
+            })
+    } else {
+        simple_pem_parse(&pem)
+            .ok_or_else(|| {
+                trc::EventType::Dkim(trc::DkimEvent::BuildError)
+                    .into_err()
+                    .details("Failed to parse private key PEM")
             })
             .and_then(|der| {
                 Ed25519Key::from_pkcs8_maybe_unchecked_der(&der).map_err(|err| {
@@ -98,7 +98,7 @@ pub async fn generate_dkim_public_key(key: &DkimSignature) -> trc::Result<String
             .map(|pk| {
                 String::from_utf8(base64_encode(&pk.public_key()).unwrap_or_default())
                     .unwrap_or_default()
-            }),
+            })
     }
 }
 
@@ -113,7 +113,15 @@ pub async fn generate_dkim_dns_record(
             &sign.selector,
             format!("v=DKIM1; k=ed25519; h=sha256; p={public_key}"),
         ),
+        DkimSignature::Dkim2Ed25519Sha256(sign) => (
+            &sign.selector,
+            format!("v=DKIM1; k=ed25519; h=sha256; p={public_key}"),
+        ),
         DkimSignature::Dkim1RsaSha256(sign) => (
+            &sign.selector,
+            format!("v=DKIM1; k=rsa; h=sha256; p={public_key}"),
+        ),
+        DkimSignature::Dkim2RsaSha256(sign) => (
             &sign.selector,
             format!("v=DKIM1; k=rsa; h=sha256; p={public_key}"),
         ),

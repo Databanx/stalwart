@@ -93,10 +93,23 @@ async fn report_analyze() {
             ac += 1;
         }
     }
-    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // Report ingestion is asynchronous, poll until the reports are stored
+    let admin = test.account("admin");
+    for _ in 0..50 {
+        if admin.registry_get_all::<DmarcExternalReport>().await.len()
+            == total_reports_received["dmarc"]
+            && admin.registry_get_all::<TlsExternalReport>().await.len()
+                == total_reports_received["tls"]
+            && admin.registry_get_all::<ArfExternalReport>().await.len()
+                == total_reports_received["arf"]
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
 
     // Purging the database shouldn't remove the reports
-    let admin = test.account("admin");
     admin
         .registry_create_object(Task::StoreMaintenance(TaskStoreMaintenance {
             maintenance_type: TaskStoreMaintenanceType::PurgeData,

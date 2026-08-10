@@ -347,6 +347,15 @@ pub enum DirectoryType {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 #[repr(u16)]
+pub enum Dkim2Flag {
+    #[default]
+    Donotmodify = 0,
+    Donotexplode = 1,
+    Feedback = 2,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[repr(u16)]
 pub enum DkimAuthResult {
     #[default]
     None = 0,
@@ -400,6 +409,8 @@ pub enum DkimSignatureType {
     #[default]
     Dkim1Ed25519Sha256 = 0,
     Dkim1RsaSha256 = 1,
+    Dkim2Ed25519Sha256 = 2,
+    Dkim2RsaSha256 = 3,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -424,6 +435,15 @@ pub enum DmarcAlignment {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 #[repr(u16)]
+pub enum DmarcDiscovery {
+    #[default]
+    Psl = 0,
+    Treewalk = 1,
+    Unspecified = 2,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[repr(u16)]
 pub enum DmarcDisposition {
     #[default]
     None = 0,
@@ -442,6 +462,7 @@ pub enum DmarcPolicyOverride {
     MailingList = 3,
     LocalPolicy = 4,
     Other = 5,
+    PolicyTestMode = 6,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -2198,6 +2219,16 @@ pub enum ProviderInfo {
     LogoUrl = 5,
     LogoWidth = 6,
     LogoHeight = 7,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[repr(u16)]
+pub enum PublicStringOptionalType {
+    #[default]
+    None = 0,
+    Value = 1,
+    EnvironmentVariable = 2,
+    File = 3,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]

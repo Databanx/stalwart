@@ -141,7 +141,7 @@ impl VacationResponseSet for Server {
             };
 
             // Parse properties
-            let mut is_active = false;
+            let mut is_active = document_id.is_some_and(|id| active_script_id == Some(id));
             let mut build_script = create_id.is_some();
             let vacation = sieve.vacation_response.as_mut().unwrap();
 
@@ -408,7 +408,7 @@ impl VacationResponseSet for Server {
 
         script.push(b'\"');
         for ch in message_body {
-            if [b'\\', b'\"'].contains(&ch) {
+            if b"\\\"".contains(&ch) {
                 script.push(b'\\');
             }
             script.push(ch);

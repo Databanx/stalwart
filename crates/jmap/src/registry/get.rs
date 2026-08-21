@@ -302,6 +302,24 @@ impl RegistryGet for Server {
                                 JmapValue::Str(self.build_bind_dns_records(id, obj).await?.into()),
                             );
                         }
+                        ObjectInner::AcmeProvider(obj)
+                            if get.properties.is_empty()
+                                || get.properties.contains(&Property::Description) =>
+                        {
+                            let mut description = obj.directory.clone();
+                            let account = obj
+                                .account_uri
+                                .rsplit('/')
+                                .find(|segment| !segment.is_empty())
+                                .unwrap_or(obj.account_uri.as_str());
+                            if !account.is_empty() {
+                                description.push_str(" (");
+                                description.push_str(account);
+                                description.push(')');
+                            }
+                            extra_properties
+                                .append(Property::Description, JmapValue::Str(description.into()));
+                        }
                         _ => {}
                     }
 

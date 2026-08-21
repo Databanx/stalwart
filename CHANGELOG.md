@@ -2,6 +2,87 @@
 
 All notable changes to this project will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.16.18] - 2026-08-17
+
+If you are upgrading from v0.16.x, replace the binary (or run `docker pull`). If you are upgrading from v0.15.x and below, please read the [upgrading documentation](https://github.com/stalwartlabs/stalwart/blob/main/UPGRADING/v0_16.md) for more information on how to upgrade from previous versions.
+
+## Added
+- Reporting: `inboundReportMaxSize` setting, which bounds the size of a decompressed inbound DMARC or TLS report (default 25MB).
+- RocksDB: `cacheSize` setting, which bounds the total memory shared by the block caches of every column family (default 128MB).
+
+## Changed
+- ASN & GeoIP: Default data source URLs now point at the ip-location-db GitHub releases, as the previously used npm packages are no longer updated. Existing installations keep their configured URLs and should update them following the [ASN and GeoIP documentation](https://stalw.art/docs/server/asn).
+- JMAP: `Identity/get` keeps identities in sync with the account's e-mail addresses.
+- MTA: Queue scheduler no longer rescans the queue from the earliest pending event and coalesces bursts of delivery completions into a single scan.
+- RocksDB: 
+  - Column families are tuned for the access pattern of the data they hold.
+  - Range iteration uses bounded iterators and no longer reads values when only keys were requested.
+
+## Fixed
+- JMAP:
+  - Setting `uploadTtl` to 1ms triggers panic.
+  - `CalendarEvent/set` does not assign `organizerCalendarAddress` nor send scheduling messages when an event is created with participants.
+  - `CalendarEvent/get` omits `isOrigin` when it is listed explicitly in `properties`.
+  - `CalendarEventNotification/changes` and `FileNode/changes` reject with `cannotCalculateChanges` the state that `/get` returned for an account with no change history.
+  - `CalendarEvent/set` and `ContactCard/set` do not write a vanished tombstone for the previous CalDAV/CardDAV href when `calendarIds` or `addressBookIds` moves an item between collections.
+- CalDAV: Attendee addresses that percent-encode a display name into the `mailto:` URI are queued verbatim.
+- Calendar: Recurring events disappear from CalDAV time-range `REPORT`s and JMAP `CalendarEvent/query` results a few years after their first occurrence.
+- WebDAV:
+  - When a file node references a parent folder that no longer exists, any request on a file collection panics.
+  - `MOVE` on a folder honors a `Depth` header of `0` or `1` instead of always moving the whole subtree.
+- MTA: 
+  - DSN bounces are emitted with a malformed `Message-ID` wrapped in doubled angle brackets.
+  - Delivery to any MX host whose name is an IDN A-label fails permanently.
+  - Queue strategy and quota expressions that branch on `source` never match at enqueue.
+  - MTA-STS:
+    - Policies in `testing` mode are enforced, turning any TLS error into a permanent failure.
+    - `mx` patterns published as U-labels never authorize the MX host they name.
+  - DMARC:
+    - Alignment compares identifiers in their A-label form.
+    - External reporting addresses published as U-labels are rejected as unauthorized.
+- Spam filter:
+  - Some rules misfire on internationalized addresses when the envelope and the headers spell the same domain in different label forms.
+  - Punycode labels that do not re-encode to the label they came from are no longer decoded.
+- WebPush: Validate push URL and use `application/octet-stream` as `Content-Type` for encrypted payloads.
+- Directory:
+  - Local group membership is cleared when the external directory is configured with a group claim or attribute that it does not return.
+  - LDAP: Directories that store aliases as additional values of the primary address attribute provision no aliases.
+  - Mail addressed to a domain alias is rejected with `550 Relay not allowed`, unless the domain's primary name happened to be resolved earlier and is still cached.
+- RocksDB: `bufferSize` setting was applied to the unused default column family and had no effect.
+- Sieve: `include` statements fail to find system and user global scripts whose name contains uppercase characters.
+- Task manager: `totalDeadline` is measured from the time a task was created instead of its first failed attempt.
+
+## [0.16.17] - 2026-08-10
+
+If you are upgrading from v0.16.x, replace the binary (or run `docker pull`). If you are upgrading from v0.15.x and below, please read the [upgrading documentation](https://github.com/stalwartlabs/stalwart/blob/main/UPGRADING/v0_16.md) for more information on how to upgrade from previous versions.
+
+## Added
+- IMAP:
+  - `UIDBATCHES` extension ([RFC 10022](https://www.rfc-editor.org/rfc/rfc10022.html)).
+  - `UIDONLY` extension ([RFC 9586](https://www.rfc-editor.org/rfc/rfc9586.html)).
+  - `MESSAGELIMIT` and `SAVELIMIT` extensions ([RFC 9738](https://www.rfc-editor.org/rfc/rfc9738.html)).
+- WebDAV: `Range` and `If-Range` header support on file downloads ([RFC 7233](https://www.rfc-editor.org/rfc/rfc7233.html)) (#2377).
+- Spam filter: `url_original` expression variable for `Url` rules.
+
+## Changed
+- Memory allocator: Replaced the unmaintained `jemallocator` crate with `tikv-jemallocator` (contributed by @checkraisefold).
+- ACME registry: Use `description` as label property.
+
+## Fixed
+- MTA: 
+  - Certificates for domains publishing an enforcing MTA-STS policy are always validated, even in the fallback TLS strategy.
+  - DSN delivery date uses wrong timestamp.
+  - `FUTURERELEASE HOLDUNTIL` uses Unix timestamps instead of RFC 3339 date-times.
+- JMAP:
+  - `EmailSubmission/query` filtering on `undoStatus` contradicts `EmailSubmission/get`, reporting held `FUTURERELEASE` submissions as `final` instead of `pending`.
+  - `EmailSubmission/get` requests without an `ids` argument iterates the wrong index.
+- CardDAV: `Accept: text/vcard` version negotiation is ignored whenever another parameter such as `q` or `charset` follows `version=`.
+- Calendar: Server-side scheduling messages place the `text/calendar` part outside the `multipart/alternative` and disposed as an attachment.
+- Sharing: Accounts holding the `impersonate` permission never have their ACL grants collected, so shared items are never listed in JMAP sessions, CalDAV/CardDAV discovery or IMAP.
+- IMAP:
+  - `COPY`/`MOVE` into a shared folder fails with `NO [ALREADYEXISTS]` when the destination account already holds the message, leaving the message in the source mailbox and clients in a retry loop.
+  - `BODYSTRUCTURE` and `ENVELOPE` return MIME parameters, `Content-Description`, subjects and display names as raw UTF-8 even to sessions that never enabled `UTF8=ACCEPT`.
+
 ## [0.16.16] - 2026-08-02
 
 If you are upgrading from v0.16.x, replace the binary (or run `docker pull`). If you are upgrading from v0.15.x and below, please read the [upgrading documentation](https://github.com/stalwartlabs/stalwart/blob/main/UPGRADING/v0_16.md) for more information on how to upgrade from previous versions.

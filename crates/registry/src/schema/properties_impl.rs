@@ -452,6 +452,7 @@ impl EnumImpl for Property {
             b"allowInvalidCerts" => Property::AllowInvalidCerts,
             b"allowPlainTextAuth" => Property::AllowPlainTextAuth,
             b"allowRelaying" => Property::AllowRelaying,
+            b"allowScimProvisioning" => Property::AllowScimProvisioning,
             b"allowSpamTraining" => Property::AllowSpamTraining,
             b"allowedEndpoints" => Property::AllowedEndpoints,
             b"allowedIps" => Property::AllowedIps,
@@ -730,6 +731,7 @@ impl EnumImpl for Property {
             b"expungeTrashAfter" => Property::ExpungeTrashAfter,
             b"extension" => Property::Extension,
             b"extensions" => Property::Extensions,
+            b"externalId" => Property::ExternalId,
             b"extraContactInfo" => Property::ExtraContactInfo,
             b"factor" => Property::Factor,
             b"failOnTimeout" => Property::FailOnTimeout,
@@ -999,6 +1001,7 @@ impl EnumImpl for Property {
             b"numFeatures" => Property::NumFeatures,
             b"numReplicas" => Property::NumReplicas,
             b"numShards" => Property::NumShards,
+            b"oauthClientId" => Property::OauthClientId,
             b"onSuccessRenewCertificate" => Property::OnSuccessRenewCertificate,
             b"openTelemetry" => Property::OpenTelemetry,
             b"options" => Property::Options,
@@ -1321,6 +1324,7 @@ impl EnumImpl for Property {
             b"userOcid" => Property::UserOcid,
             b"username" => Property::Username,
             b"usernameDomain" => Property::UsernameDomain,
+            b"vCardVersion" => Property::VCardVersion,
             b"validateDomain" => Property::ValidateDomain,
             b"value" => Property::Value,
             b"variableName" => Property::VariableName,
@@ -1388,6 +1392,7 @@ impl EnumImpl for Property {
             Property::AllowInvalidCerts => "allowInvalidCerts",
             Property::AllowPlainTextAuth => "allowPlainTextAuth",
             Property::AllowRelaying => "allowRelaying",
+            Property::AllowScimProvisioning => "allowScimProvisioning",
             Property::AllowSpamTraining => "allowSpamTraining",
             Property::AllowedEndpoints => "allowedEndpoints",
             Property::AllowedIps => "allowedIps",
@@ -1666,6 +1671,7 @@ impl EnumImpl for Property {
             Property::ExpungeTrashAfter => "expungeTrashAfter",
             Property::Extension => "extension",
             Property::Extensions => "extensions",
+            Property::ExternalId => "externalId",
             Property::ExtraContactInfo => "extraContactInfo",
             Property::Factor => "factor",
             Property::FailOnTimeout => "failOnTimeout",
@@ -1935,6 +1941,7 @@ impl EnumImpl for Property {
             Property::NumFeatures => "numFeatures",
             Property::NumReplicas => "numReplicas",
             Property::NumShards => "numShards",
+            Property::OauthClientId => "oauthClientId",
             Property::OnSuccessRenewCertificate => "onSuccessRenewCertificate",
             Property::OpenTelemetry => "openTelemetry",
             Property::Options => "options",
@@ -2257,6 +2264,7 @@ impl EnumImpl for Property {
             Property::UserOcid => "userOcid",
             Property::Username => "username",
             Property::UsernameDomain => "usernameDomain",
+            Property::VCardVersion => "vCardVersion",
             Property::ValidateDomain => "validateDomain",
             Property::Value => "value",
             Property::VariableName => "variableName",
@@ -2328,6 +2336,7 @@ impl EnumImpl for Property {
             26 => Some(Property::AllowInvalidCerts),
             424 => Some(Property::AllowPlainTextAuth),
             348 => Some(Property::AllowRelaying),
+            932 => Some(Property::AllowScimProvisioning),
             369 => Some(Property::AllowSpamTraining),
             398 => Some(Property::AllowedEndpoints),
             49 => Some(Property::AllowedIps),
@@ -2606,6 +2615,7 @@ impl EnumImpl for Property {
             194 => Some(Property::ExpungeTrashAfter),
             754 => Some(Property::Extension),
             257 => Some(Property::Extensions),
+            933 => Some(Property::ExternalId),
             243 => Some(Property::ExtraContactInfo),
             821 => Some(Property::Factor),
             490 => Some(Property::FailOnTimeout),
@@ -2875,6 +2885,7 @@ impl EnumImpl for Property {
             390 => Some(Property::NumFeatures),
             350 => Some(Property::NumReplicas),
             351 => Some(Property::NumShards),
+            930 => Some(Property::OauthClientId),
             813 => Some(Property::OnSuccessRenewCertificate),
             495 => Some(Property::OpenTelemetry),
             630 => Some(Property::Options),
@@ -3085,7 +3096,7 @@ impl EnumImpl for Property {
             423 => Some(Property::SkipFirst),
             552 => Some(Property::SmtpGreeting),
             441 => Some(Property::SnippetMaxResults),
-            930 => Some(Property::SnippetConcurrency),
+            934 => Some(Property::SnippetConcurrency),
             591 => Some(Property::SocketBacklog),
             592 => Some(Property::SocketNoDelay),
             593 => Some(Property::SocketReceiveBufferSize),
@@ -3197,6 +3208,7 @@ impl EnumImpl for Property {
             901 => Some(Property::UserOcid),
             131 => Some(Property::Username),
             610 => Some(Property::UsernameDomain),
+            931 => Some(Property::VCardVersion),
             413 => Some(Property::ValidateDomain),
             492 => Some(Property::Value),
             675 => Some(Property::VariableName),
@@ -3218,7 +3230,7 @@ impl EnumImpl for Property {
         }
     }
 
-    const COUNT: usize = 931;
+    const COUNT: usize = 935;
 }
 
 impl serde::Serialize for Property {
@@ -3380,6 +3392,11 @@ impl ObjectType {
                     Property::DomainId,
                     IndexSchemaType::Search,
                     IndexSchemaValueType::Id,
+                ),
+                IndexSchema::new(
+                    Property::ExternalId,
+                    IndexSchemaType::Search,
+                    IndexSchemaValueType::Keyword,
                 ),
                 IndexSchema::new(
                     Property::MemberGroupIds,

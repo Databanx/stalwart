@@ -1,6 +1,6 @@
 [package]
 name = "tests"
-version = "0.16.18"
+version = "0.16.20"
 edition = "2024"
 
 [features]
@@ -34,6 +34,8 @@ calcard = { version = "0.3", features = ["rkyv"] }
 groupware = { path = "../crates/groupware", features = ["test_mode"] }
 http = { path = "../crates/http", features = ["test_mode", "enterprise"] }
 http_proto = { path = "../crates/http-proto", features = ["test_mode"]  }
+scim = { path = "../crates/scim", features = ["test_mode", "enterprise"] }
+scim-proto = { path = "../crates/scim-proto" }
 services = { path = "../crates/services", features = ["test_mode", "enterprise"] }
 pop3 = { path = "../crates/pop3", features = ["test_mode"] }
 smtp = { path = "../crates/smtp", features = ["test_mode", "enterprise"] }
@@ -47,7 +49,7 @@ managesieve = { path = "../crates/managesieve", features = ["test_mode", "enterp
 smtp-proto = { version = "0.2" }
 mail-auth = { version = "0.12", features = ["test"] }
 mail-parser = { version = "0.11", features = ["full_encoding", "rkyv"] } 
-mail-builder = "0.4.4"
+mail-builder = "0.5.0"
 sieve-rs = { version = "0.7", features = ["rkyv"] } 
 utils = { path = "../crates/utils", features = ["test_mode"] }
 jmap-client = { version = "0.4", features = ["websockets", "debug", "async"] }
@@ -86,8 +88,11 @@ x509-parser = "0.18"
 rcgen = "0.14"
 sha2 = "0.11"
 time = "0.3"
-testcontainers = { version = "0.27", features = ["reusable-containers"] }
+testcontainers = { version = "0.28", features = ["reusable-containers"] }
 rust-s3 = { version = "0.37", default-features = false, features = ["tokio-rustls-tls"] }
 
 [target.'cfg(not(any(target_env = "msvc", target_os = "freebsd")))'.dependencies]
 tikv-jemallocator = "0.7"
+
+[lints]
+workspace = true

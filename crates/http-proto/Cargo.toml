@@ -1,6 +1,6 @@
 [package]
 name = "http_proto"
-version = "0.16.18"
+version = "0.16.20"
 edition = "2024"
 
 [dependencies]
@@ -22,3 +22,6 @@ compact_str = "0.10.0"
 test_mode = []
 dev_mode = []
 enterprise = []
+
+[lints]
+workspace = true

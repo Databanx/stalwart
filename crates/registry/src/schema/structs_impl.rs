@@ -10,7 +10,7 @@ use crate::schema::prelude::*;
 
 impl ObjectImpl for Account {
     const FLAGS: u64 = OBJ_FILTER_TENANT | OBJ_SEQ_ID;
-    const VERSION: u8 = 0;
+    const VERSION: u8 = 1;
     const OBJECT: ObjectType = ObjectType::Account;
 
     fn validate(&self, errors: &mut Vec<ValidationError>) -> bool {
@@ -672,7 +672,7 @@ impl Action {
 
 impl ObjectImpl for AddressBook {
     const FLAGS: u64 = OBJ_SINGLETON;
-    const VERSION: u8 = 0;
+    const VERSION: u8 = 1;
     const OBJECT: ObjectType = ObjectType::AddressBook;
 
     fn validate(&self, errors: &mut Vec<ValidationError>) -> bool {
@@ -710,6 +710,7 @@ impl Pickle for AddressBook {
         self.max_v_card_size.pickle(out);
         self.max_address_books.pickle(out);
         self.max_contacts.pickle(out);
+        self.v_card_version.pickle(out);
     }
 
     fn unpickle(stream: &mut crate::pickle::PickledStream<'_>) -> Option<Self> {
@@ -719,6 +720,9 @@ impl Pickle for AddressBook {
         this.max_v_card_size = Pickle::unpickle(stream)?;
         this.max_address_books = Pickle::unpickle(stream)?;
         this.max_contacts = Pickle::unpickle(stream)?;
+        if stream.version() >= 1 {
+            this.v_card_version = Pickle::unpickle(stream)?;
+        }
         Some(this)
     }
 }
@@ -731,13 +735,14 @@ impl Default for AddressBook {
             max_v_card_size: 524288u64,
             max_address_books: Some(250u64),
             max_contacts: Default::default(),
+            v_card_version: VCardVersion::V4,
         }
     }
 }
 
 impl IntoValue for AddressBook {
     fn into_value(self) -> JmapValue<'static> {
-        let mut map = jmap_tools::Map::with_capacity(7);
+        let mut map = jmap_tools::Map::with_capacity(8);
         map.insert_unchecked(
             Property::DefaultDisplayName,
             self.default_display_name.into_value(),
@@ -752,6 +757,7 @@ impl IntoValue for AddressBook {
             self.max_address_books.into_value(),
         );
         map.insert_unchecked(Property::MaxContacts, self.max_contacts.into_value());
+        map.insert_unchecked(Property::VCardVersion, self.v_card_version.into_value());
         JmapValue::Object(map)
     }
 }
@@ -772,6 +778,7 @@ impl RegistryJsonPropertyPatch for AddressBook {
             Some(Property::MaxVCardSize) => self.max_v_card_size.patch(pointer, value),
             Some(Property::MaxAddressBooks) => self.max_address_books.patch(pointer, value),
             Some(Property::MaxContacts) => self.max_contacts.patch(pointer, value),
+            Some(Property::VCardVersion) => self.v_card_version.patch(pointer, value),
             Some(Property::Type) => Ok(MaybeUnpatched::Unpatched {
                 property: Property::Type,
                 value,
@@ -1657,7 +1664,7 @@ impl RegistryJsonPropertyPatch for AppPassword {
 
 impl ObjectImpl for Application {
     const FLAGS: u64 = 0;
-    const VERSION: u8 = 0;
+    const VERSION: u8 = 1;
     const OBJECT: ObjectType = ObjectType::Application;
 
     fn validate(&self, errors: &mut Vec<ValidationError>) -> bool {
@@ -1684,6 +1691,11 @@ impl ObjectImpl for Application {
                 errors.push(ValidationError::required(Property::UnpackDirectory));
             }
         }
+        if let Some(value) = &self.oauth_client_id {
+            if value.is_empty() {
+                errors.push(ValidationError::required(Property::OauthClientId));
+            }
+        }
         errors.len() == neb
     }
 
@@ -1698,6 +1710,7 @@ impl Pickle for Application {
         self.url_prefix.pickle(out);
         self.auto_update_frequency.pickle(out);
         self.unpack_directory.pickle(out);
+        self.oauth_client_id.pickle(out);
     }
 
     fn unpickle(stream: &mut crate::pickle::PickledStream<'_>) -> Option<Self> {
@@ -1708,6 +1721,9 @@ impl Pickle for Application {
         this.url_prefix = Pickle::unpickle(stream)?;
         this.auto_update_frequency = Pickle::unpickle(stream)?;
         this.unpack_directory = Pickle::unpickle(stream)?;
+        if stream.version() >= 1 {
+            this.oauth_client_id = Pickle::unpickle(stream)?;
+        }
         Some(this)
     }
 }
@@ -1721,13 +1737,14 @@ impl Default for Application {
             url_prefix: Default::default(),
             auto_update_frequency: Duration::from_millis(7776000000),
             unpack_directory: Default::default(),
+            oauth_client_id: Default::default(),
         }
     }
 }
 
 impl IntoValue for Application {
     fn into_value(self) -> JmapValue<'static> {
-        let mut map = jmap_tools::Map::with_capacity(8);
+        let mut map = jmap_tools::Map::with_capacity(9);
         map.insert_unchecked(Property::Enabled, self.enabled.into_value());
         map.insert_unchecked(Property::Description, self.description.into_value());
         map.insert_unchecked(Property::ResourceUrl, self.resource_url.into_value());
@@ -1740,6 +1757,7 @@ impl IntoValue for Application {
             Property::UnpackDirectory,
             self.unpack_directory.into_value(),
         );
+        map.insert_unchecked(Property::OauthClientId, self.oauth_client_id.into_value());
         JmapValue::Object(map)
     }
 }
@@ -1764,6 +1782,9 @@ impl RegistryJsonPropertyPatch for Application {
             Some(Property::AutoUpdateFrequency) => self.auto_update_frequency.patch(pointer, value),
             Some(Property::UnpackDirectory) => self
                 .unpack_directory
+                .patch(pointer.with_validators(&[StringValidator::Trim]), value),
+            Some(Property::OauthClientId) => self
+                .oauth_client_id
                 .patch(pointer.with_validators(&[StringValidator::Trim]), value),
             Some(Property::Type) => Ok(MaybeUnpatched::Unpatched {
                 property: Property::Type,
@@ -19639,7 +19660,7 @@ impl RegistryJsonPropertyPatch for DnsServerYandexCloud {
 
 impl ObjectImpl for Domain {
     const FLAGS: u64 = OBJ_FILTER_TENANT | OBJ_SEQ_ID;
-    const VERSION: u8 = 0;
+    const VERSION: u8 = 1;
     const OBJECT: ObjectType = ObjectType::Domain;
 
     fn validate(&self, errors: &mut Vec<ValidationError>) -> bool {
@@ -19738,6 +19759,7 @@ impl Pickle for Domain {
         self.sub_addressing.pickle(out);
         self.allow_relaying.pickle(out);
         self.report_address_uri.pickle(out);
+        self.allow_scim_provisioning.pickle(out);
     }
 
     fn unpickle(stream: &mut crate::pickle::PickledStream<'_>) -> Option<Self> {
@@ -19757,6 +19779,9 @@ impl Pickle for Domain {
         this.sub_addressing = Pickle::unpickle(stream)?;
         this.allow_relaying = Pickle::unpickle(stream)?;
         this.report_address_uri = Pickle::unpickle(stream)?;
+        if stream.version() >= 1 {
+            this.allow_scim_provisioning = Pickle::unpickle(stream)?;
+        }
         Some(this)
     }
 }
@@ -19779,13 +19804,14 @@ impl Default for Domain {
             sub_addressing: Default::default(),
             allow_relaying: false,
             report_address_uri: Some("mailto:postmaster".to_string()),
+            allow_scim_provisioning: false,
         }
     }
 }
 
 impl IntoValue for Domain {
     fn into_value(self) -> JmapValue<'static> {
-        let mut map = jmap_tools::Map::with_capacity(17);
+        let mut map = jmap_tools::Map::with_capacity(18);
         map.insert_unchecked(Property::Name, self.name.into_value());
         map.insert_unchecked(Property::Aliases, self.aliases.into_value());
         map.insert_unchecked(Property::IsEnabled, self.is_enabled.into_value());
@@ -19809,6 +19835,10 @@ impl IntoValue for Domain {
         map.insert_unchecked(
             Property::ReportAddressUri,
             self.report_address_uri.into_value(),
+        );
+        map.insert_unchecked(
+            Property::AllowScimProvisioning,
+            self.allow_scim_provisioning.into_value(),
         );
         JmapValue::Object(map)
     }
@@ -19849,6 +19879,9 @@ impl RegistryJsonPropertyPatch for Domain {
             Some(Property::ReportAddressUri) => self
                 .report_address_uri
                 .patch(pointer.with_validators(&[StringValidator::Trim]), value),
+            Some(Property::AllowScimProvisioning) => {
+                self.allow_scim_provisioning.patch(pointer, value)
+            }
             Some(Property::Type) => Ok(MaybeUnpatched::Unpatched {
                 property: Property::Type,
                 value,
@@ -21373,6 +21406,11 @@ impl GroupAccount {
         for value in value.values() {
             value.validate(errors);
         }
+        if let Some(value) = &self.external_id {
+            if value.is_empty() {
+                errors.push(ValidationError::required(Property::ExternalId));
+            }
+        }
         errors.len() == neb
     }
 
@@ -21393,6 +21431,9 @@ impl GroupAccount {
         for item in self.aliases.values() {
             item.index(i);
         }
+        if let Some(value) = &self.external_id {
+            i.search(Property::ExternalId, value);
+        }
     }
 }
 
@@ -21409,6 +21450,7 @@ impl Pickle for GroupAccount {
         self.aliases.pickle(out);
         self.locale.pickle(out);
         self.time_zone.pickle(out);
+        self.external_id.pickle(out);
     }
 
     fn unpickle(stream: &mut crate::pickle::PickledStream<'_>) -> Option<Self> {
@@ -21424,6 +21466,9 @@ impl Pickle for GroupAccount {
         this.aliases = Pickle::unpickle(stream)?;
         this.locale = Pickle::unpickle(stream)?;
         this.time_zone = Pickle::unpickle(stream)?;
+        if stream.version() >= 1 {
+            this.external_id = Pickle::unpickle(stream)?;
+        }
         Some(this)
     }
 }
@@ -21442,13 +21487,14 @@ impl Default for GroupAccount {
             aliases: Default::default(),
             locale: Locale::EnUS,
             time_zone: Default::default(),
+            external_id: Default::default(),
         }
     }
 }
 
 impl IntoValue for GroupAccount {
     fn into_value(self) -> JmapValue<'static> {
-        let mut map = jmap_tools::Map::with_capacity(13);
+        let mut map = jmap_tools::Map::with_capacity(14);
         map.insert_unchecked(Property::Name, self.name.into_value());
         map.insert_unchecked(Property::DomainId, self.domain_id.into_value());
         map.insert_unchecked(Property::Description, self.description.into_value());
@@ -21460,6 +21506,7 @@ impl IntoValue for GroupAccount {
         map.insert_unchecked(Property::Aliases, self.aliases.into_value());
         map.insert_unchecked(Property::Locale, self.locale.into_value());
         map.insert_unchecked(Property::TimeZone, self.time_zone.into_value());
+        map.insert_unchecked(Property::ExternalId, self.external_id.into_value());
         JmapValue::Object(map)
     }
 }
@@ -21489,6 +21536,7 @@ impl RegistryJsonPropertyPatch for GroupAccount {
             Some(Property::Aliases) => self.aliases.patch(pointer, value),
             Some(Property::Locale) => self.locale.patch(pointer, value),
             Some(Property::TimeZone) => self.time_zone.patch(pointer, value),
+            Some(Property::ExternalId) => self.external_id.patch(pointer, value),
             Some(Property::Type) => Ok(MaybeUnpatched::Unpatched {
                 property: Property::Type,
                 value,
@@ -30475,7 +30523,7 @@ impl Default for OidcDirectory {
         Self {
             description: Default::default(),
             issuer_url: Default::default(),
-            require_audience: Some("stalwart".to_string()),
+            require_audience: Default::default(),
             require_scopes: Map::new(vec!["openid".to_string(), "email".to_string()]),
             claim_username: "preferred_username".to_string(),
             username_domain: Default::default(),
@@ -46820,6 +46868,11 @@ impl UserAccount {
         for value in value.values() {
             value.validate(errors);
         }
+        if let Some(value) = &self.external_id {
+            if value.is_empty() {
+                errors.push(ValidationError::required(Property::ExternalId));
+            }
+        }
         if let Some(value) = &self.description {
             if value.is_empty() {
                 errors.push(ValidationError::required(Property::Description));
@@ -46854,6 +46907,9 @@ impl UserAccount {
         for item in self.aliases.values() {
             item.index(i);
         }
+        if let Some(value) = &self.external_id {
+            i.search(Property::ExternalId, value);
+        }
         if let Some(value) = &self.description {
             i.text(Property::Text, value);
         }
@@ -46873,6 +46929,7 @@ impl Pickle for UserAccount {
         self.permissions.pickle(out);
         self.quotas.pickle(out);
         self.aliases.pickle(out);
+        self.external_id.pickle(out);
         self.description.pickle(out);
         self.locale.pickle(out);
         self.time_zone.pickle(out);
@@ -46891,6 +46948,9 @@ impl Pickle for UserAccount {
         this.permissions = Pickle::unpickle(stream)?;
         this.quotas = Pickle::unpickle(stream)?;
         this.aliases = Pickle::unpickle(stream)?;
+        if stream.version() >= 1 {
+            this.external_id = Pickle::unpickle(stream)?;
+        }
         this.description = Pickle::unpickle(stream)?;
         this.locale = Pickle::unpickle(stream)?;
         this.time_zone = Pickle::unpickle(stream)?;
@@ -46912,6 +46972,7 @@ impl Default for UserAccount {
             permissions: Default::default(),
             quotas: Default::default(),
             aliases: Default::default(),
+            external_id: Default::default(),
             description: Default::default(),
             locale: Locale::EnUS,
             time_zone: Default::default(),
@@ -46922,7 +46983,7 @@ impl Default for UserAccount {
 
 impl IntoValue for UserAccount {
     fn into_value(self) -> JmapValue<'static> {
-        let mut map = jmap_tools::Map::with_capacity(16);
+        let mut map = jmap_tools::Map::with_capacity(17);
         map.insert_unchecked(Property::Name, self.name.into_value());
         map.insert_unchecked(Property::DomainId, self.domain_id.into_value());
         map.insert_unchecked(Property::Credentials, self.credentials.into_value());
@@ -46933,6 +46994,7 @@ impl IntoValue for UserAccount {
         map.insert_unchecked(Property::Permissions, self.permissions.into_value());
         map.insert_unchecked(Property::Quotas, self.quotas.into_value());
         map.insert_unchecked(Property::Aliases, self.aliases.into_value());
+        map.insert_unchecked(Property::ExternalId, self.external_id.into_value());
         map.insert_unchecked(Property::Description, self.description.into_value());
         map.insert_unchecked(Property::Locale, self.locale.into_value());
         map.insert_unchecked(Property::TimeZone, self.time_zone.into_value());
@@ -46968,6 +47030,7 @@ impl RegistryJsonPropertyPatch for UserAccount {
             Some(Property::Quotas) => self.quotas.patch(pointer, value),
             Some(Property::UsedDiskQuota) => pointer.assert_server_set(),
             Some(Property::Aliases) => self.aliases.patch(pointer, value),
+            Some(Property::ExternalId) => self.external_id.patch(pointer, value),
             Some(Property::Description) => self.description.patch(pointer, value),
             Some(Property::Locale) => self.locale.patch(pointer, value),
             Some(Property::TimeZone) => self.time_zone.patch(pointer, value),

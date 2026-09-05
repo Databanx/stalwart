@@ -66,6 +66,7 @@ impl CalendarEventGet for Server {
             .is_none_or(|v| matches!(v, MaybeResultReference::Value(v) if v.is_empty()));
         let properties = request.unwrap_properties(&[]);
         let account_id = request.account_id.document_id();
+        let personal_id = access_token.personal_id(account_id, Collection::Calendar);
         let cache = self
             .fetch_dav_resources(
                 access_token.account_id(),
@@ -298,6 +299,7 @@ impl CalendarEventGet for Server {
                             continue 'outer;
                         }
                         let component = &ical.components[expansion.comp_id as usize];
+                        let source_component = component;
                         let is_recurrent = component.is_recurrent();
                         let is_recurrent_or_override =
                             is_recurrent || component.is_recurrence_override();
@@ -364,13 +366,30 @@ impl CalendarEventGet for Server {
                         });
 
                         if is_recurrent_or_override {
-                            component.entries.push(ICalendarEntry {
-                                name: ICalendarProperty::RecurrenceId,
-                                params: vec![ICalendarParameter::tzid(tz_name.clone())],
-                                values: vec![ICalendarValue::PartialDateTime(Box::new(
-                                    PartialDateTime::from_naive_timestamp(start_timestamp),
-                                ))],
-                            });
+                            component.entries.push(
+                                source_component
+                                    .property(&ICalendarProperty::RecurrenceId)
+                                    .filter(|entry| {
+                                        entry
+                                            .parameters(&ICalendarParameterName::Range)
+                                            .next()
+                                            .is_none()
+                                            || calendar_event
+                                                .data
+                                                .expand_single(expansion.comp_id, default_tz)
+                                                .is_some_and(|first| {
+                                                    first.start_naive == expansion.start_naive
+                                                })
+                                    })
+                                    .cloned()
+                                    .unwrap_or_else(|| ICalendarEntry {
+                                        name: ICalendarProperty::RecurrenceId,
+                                        params: vec![ICalendarParameter::tzid(tz_name.clone())],
+                                        values: vec![ICalendarValue::PartialDateTime(Box::new(
+                                            PartialDateTime::from_naive_timestamp(start_timestamp),
+                                        ))],
+                                    }),
+                            );
                         }
 
                         if !has_duration {
@@ -590,7 +609,7 @@ impl CalendarEventGet for Server {
                                 JSCalendarProperty::UseDefaultAlerts,
                                 Value::Bool(
                                     calendar_event
-                                        .preferences(access_token)
+                                        .preferences(personal_id)
                                         .is_none_or(|v| v.flags & PREF_USE_DEFAULT_ALERTS != 0),
                                 ),
                             );

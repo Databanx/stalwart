@@ -1,6 +1,6 @@
 [package]
 name = "trc"
-version = "0.16.18"
+version = "0.16.20"
 edition = "2024"
 
 [dependencies]
@@ -25,3 +25,6 @@ dev_mode = []
 enterprise = []
 
 [dev-dependencies]
+
+[lints]
+workspace = true

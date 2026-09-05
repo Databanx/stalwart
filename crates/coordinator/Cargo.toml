@@ -1,6 +1,6 @@
 [package]
 name = "coordinator"
-version = "0.16.18"
+version = "0.16.20"
 edition = "2024"
 
 [dependencies]
@@ -22,3 +22,6 @@ kafka = ["rdkafka"]
 redis = ["dep:redis", "futures"]
 enterprise = []
 test_mode = []
+
+[lints]
+workspace = true

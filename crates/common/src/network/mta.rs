@@ -177,10 +177,15 @@ impl Server {
         }
 
         // Catch-all resolution
-        if allow_catch_all
-            && let Some(catch_all) = &domain.catch_all
-        {
-            return Ok(RcptResolution::Rewrite(catch_all.to_string()));
+        if allow_catch_all && let Some(catch_all) = &domain.catch_all {
+            return Ok(
+                match Box::pin(self.rcpt_resolve(catch_all, false, session_id)).await? {
+                    resolution @ (RcptResolution::Expand(_) | RcptResolution::Rewrite(_)) => {
+                        resolution
+                    }
+                    _ => RcptResolution::Rewrite(catch_all.to_string()),
+                },
+            );
         }
 
         // Verify whether domain relaying is enabled

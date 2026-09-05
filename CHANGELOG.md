@@ -2,6 +2,95 @@
 
 All notable changes to this project will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.16.20] - 2026-09-30
+
+If you are upgrading from v0.16.x, replace the binary (or run `docker pull`). If you are upgrading from v0.15.x and below, please read the [upgrading documentation](https://github.com/stalwartlabs/stalwart/blob/main/UPGRADING/v0_16.md) for more information on how to upgrade from previous versions.
+
+## Added
+- System for Cross-domain Identity Management (SCIM) v2 (*Enterprise*):
+  - Core Schema ([RFC 7643](https://www.rfc-editor.org/rfc/rfc7643.html))
+  - Protocol ([RFC 7644](https://www.rfc-editor.org/rfc/rfc7644.html))
+  - Cursor-Based Pagination ([RFC 9865](https://www.rfc-editor.org/rfc/rfc9865.html))
+  - Interoperability Profile ([draft-zollner-scim-interop-profile](https://datatracker.ietf.org/doc/draft-zollner-scim-interop-profile/))
+  - IPSIE lifecycle profile ([draft-schreiber-scim-ipsie-profile](https://datatracker.ietf.org/doc/draft-schreiber-scim-ipsie-profile/))
+- JMAP: `CalendarEvent/set` support for updating and deleting synthetic ids (#2925).
+- Calendar: 
+  - Conference links in calendar invites and email alarms.
+  - Translations for Arabic, Brazilian Portuguese, Bulgarian, Chinese Simplified, Chinese Traditional, Croatian, Czech, Finnish, Hebrew, Hindi, Hungarian, Indonesian, Japanese, Korean, Lithuanian, Norwegian Bokmål, Persian, Romanian, Russian, Slovak, Slovenian, Thai, Turkish, Ukrainian and Vietnamese.
+
+## Changed
+- Calendar: Updated HTTP RSVP page.
+
+## Fixed
+- DANE:
+  - `TLSA` records are looked up whenever the MX RRset is signed, even when the MX host's own zone is not.
+  - Mandatory DANE failures are permanent rather than temporary, bouncing messages that should be delayed.
+  - Valid but unusable `TLSA` records fall back to the configured TLS strategy, permitting cleartext delivery where TLS is required.
+- S3: Fix outdated upstream `af-south-1` region configuration.
+- Setup wizard: SQL directories set to use the main data store are now validated against the data store being configured.
+- CardDAV: Delete default address book id when deleting the default address book.
+- Redis: Sentinel deployments configured with `rediss://` URLs now connect to the master over TLS instead of silently falling back to cleartext.
+- Email: Generated `Message-ID` headers use the hostname of the node that built the message instead of the configured server hostname.
+- MTA: 
+  - Do not send DMARC reports to local domains.
+  - Messages addressed to an `inboundReportAddresses` match are only discarded when they actually contain a report (#1088).
+- Directory: Impersonation using the recovery admin fails when the impersonated account has not logged in before (LDAP and SQL directories).
+- WebUI: Failed logins open the browser's native credential prompt.
+- Cluster: Expired node id leases are released periodically rather than only during startup, so entries for removed nodes no longer remain `Stale` or `Inactive` indefinitely.
+
+## [0.16.19] - 2026-08-24
+
+If you are upgrading from v0.16.x, replace the binary (or run `docker pull`). If you are upgrading from v0.15.x and below, please read the [upgrading documentation](https://github.com/stalwartlabs/stalwart/blob/main/UPGRADING/v0_16.md) for more information on how to upgrade from previous versions.
+
+## Added
+- WebUI: `oauthClientId` setting in `Application`, which allows the WebUI to use a different OAuth client than the default.
+- Sieve: `env.spam.score` and `env.spam.is_spam` variables, which expose the spam filter result to system scripts running at the `DATA` stage.
+- CalDAV: `vCardVersion` setting in `AddressBook`, which allows the default vCard version to be specified when the client does not request a specific version.
+
+## Changed
+- MySQL & MariaDB: Key columns are now `VARBINARY(255)` with a full-length primary key instead of `TINYBLOB`. Note: Existing deployments should run, once per table, for each of the tables `a`, `d`, `e`, `f`, `g`, `h`, `j`, `k`, `l`, `m`, `n`, `o`, `p`, `q`, `r`, `s`, `t`, `u`, `w`, `x` and `y` the command `ALTER TABLE a MODIFY k VARBINARY(255) NOT NULL;`.
+
+## Fixed
+- ACME:
+  - Order and authorization failures are never logged, so an order rejected by the CA.
+  - An order rejected by the CA marks the renewal task as permanently failed.
+- CalDAV:
+  - Attendee addresses whose `mailto:` URI percent-encodes a full `name-addr` are silently dropped from the scheduling snapshot.
+  - Attendees whose calendar user address cannot be parsed should be flagged with `SCHEDULE-STATUS=3.7`.
+  - The RSVP link in an iMIP invitation stamps `PARTSTAT` on the organizer's copy of the event only, leaving a local attendee's own copy at `NEEDS-ACTION` and sending the organizer no reply.
+  - `MKCALENDAR`, `MKCOL` and `PROPPATCH` store the display name, description, time zone and the other per-user properties under the authenticated account rather than the account that owns the collection.
+- Directory: 
+  - An empty column, attribute or claim returned by an external directory is synchronized as an empty string rather than a missing value.
+  - `/api/discover` splits the account name on `@` without accounting for the `%` master user separator or the recovery administrator.
+- FoundationDB: Older chunked entries are not deleted.
+- IMAP: `SETACL` and `DELETEACL` fail to resolve an identifier spelled with uppercase characters.
+- iMIP: Invitations, replies and cancellations reference a `TZID` parameter with no matching `VTIMEZONE` component whenever the event was stored without one.
+- JMAP:
+  - `AddressBook/get`: A new account's default address book is never recorded.
+  - `Email/get` and `Email/parse` with `fetchAllBodyValues` return body values only for the parts listed in `textBody` or `htmlBody`, omitting every other `text/*` part in `bodyStructure`.
+  - `Email/set` writes display names as an RFC 2047 encoded-word wrapped in a quoted-string, which RFC 2047 forbids.
+  - `Mailbox/set`, `AddressBook/set` and `Calendar/set` store `isSubscribed` and the other per-user properties under the authenticated account rather than the account named in the request.
+  - `Principal/query` returns no results when the `name` or `email` filter is spelled with uppercase characters.
+  - `FileNode/set`: File nodes created over JMAP are returned with a `<D:href>` holding the raw name over WebDAV.
+- Meilisearch:
+  - Queries return at most 1000 results, as the `maxTotalHits` pagination setting is left at the Meilisearch default.
+  - Searches combining several terms return documents that match only some of them.
+  - A task confirmation timeout is reported as a success when `failOnTimeout` is disabled.
+- Import: `--import` always aborts with the target database already containing data in the key range being imported.
+- MTA:
+  - A domain `catchAllAddress` pointing to a mailing list or a sub-addressed mailbox is accepted at `RCPT TO` and then rejected at local delivery with `550 5.5.0 Mailbox not found`.
+  - `is_local_address()` and `is_local_domain()` expression functions do not match an address or domain spelled with uppercase characters.
+  - Relay routes are rejected with `host resolves loopback address`, which prevents relaying through a local proxy or tunnel.
+- MySQL, MariaDB & PostgreSQL: Range scans, range deletions and store purges run as a single unbounded statement, so on servers that enforce a statement timeout they abort on large accounts and tasks such as account deletion can never complete.
+- Network: `local_port` and `local_ip` report the address Stalwart is bound to rather than the address the client connected to when the connection arrives through a trusted proxy.
+- Task manager:
+  - `totalDeadline` is not enforced on tasks that fail with a specific retry time.
+  - Indexing tasks are dropped after `maxAttempts` failures, so a search store that is unavailable or overloaded leaves messages permanently missing from the index.
+  - Indexing tasks are dropped when the document metadata read returns no data, which can happen on SQL read replicas that have not yet caught up with the primary.
+  - The DNS management task republishes the DKIM records of retired keys that the DKIM rotation task had already removed from the zone.
+- Sieve: `spamtest` returns only `1` or `10` (and `spamtest :percent` only `0` or `100`), so scripts cannot act on intermediate spam scores.
+- Spam filter: `MIME_BAD` is tagged whenever the declared `Content-Type` of an attachment is not byte identical to the type detected from its magic bytes.
+
 ## [0.16.18] - 2026-08-17
 
 If you are upgrading from v0.16.x, replace the binary (or run `docker pull`). If you are upgrading from v0.15.x and below, please read the [upgrading documentation](https://github.com/stalwartlabs/stalwart/blob/main/UPGRADING/v0_16.md) for more information on how to upgrade from previous versions.

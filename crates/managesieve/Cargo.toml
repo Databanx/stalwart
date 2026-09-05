@@ -1,6 +1,6 @@
 [package]
 name = "managesieve"
-version = "0.16.18"
+version = "0.16.20"
 edition = "2024"
 
 [dependencies]
@@ -30,3 +30,6 @@ rkyv = { version = "0.8.17", features = ["little_endian"] }
 [features]
 test_mode = []
 enterprise = []
+
+[lints]
+workspace = true

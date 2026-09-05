@@ -1,6 +1,6 @@
 [package]
 name = "types"
-version = "0.16.18"
+version = "0.16.20"
 edition = "2024"
 
 [dependencies]
@@ -17,3 +17,6 @@ blake3 = "1.8.5"
 [features]
 test_mode = []
 
+
+[lints]
+workspace = true

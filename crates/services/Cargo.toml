@@ -1,6 +1,6 @@
 [package]
 name = "services"
-version = "0.16.18"
+version = "0.16.20"
 edition = "2024"
 
 [dependencies]
@@ -20,10 +20,10 @@ registry = { path =  "../registry" }
 smtp-proto = { version = "0.2", features = ["rkyv", "serde"] }
 tokio = { version = "1.53", features = ["rt"] }
 mail-parser = { version = "0.11", features = ["full_encoding", "rkyv"] }
-mail-builder = { version = "0.4" }
+mail-builder = { version = "0.5" }
 aho-corasick = { version = "1.1" }
 calcard = { version = "0.3", features = ["rkyv"] }
-chrono = { version = "0.4", features = ["unstable-locales"] }
+chrono = "0.4"
 serde = { version = "1.0", features = ["derive"]}
 serde_json = "1.0"
 memory-stats = "1.2.0"
@@ -44,3 +44,6 @@ psl = "2"
 [features]
 test_mode = []
 enterprise = []
+
+[lints]
+workspace = true

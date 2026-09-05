@@ -92,6 +92,8 @@ pub struct AddressBook {
     pub max_address_books: Option<u64>,
     #[serde(rename = "maxContacts")]
     pub max_contacts: Option<u64>,
+    #[serde(rename = "vCardVersion")]
+    pub v_card_version: VCardVersion,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -228,6 +230,8 @@ pub struct Application {
     pub auto_update_frequency: Duration,
     #[serde(rename = "unpackDirectory")]
     pub unpack_directory: Option<String>,
+    #[serde(rename = "oauthClientId")]
+    pub oauth_client_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2722,6 +2726,8 @@ pub struct Domain {
     pub allow_relaying: bool,
     #[serde(rename = "reportAddressUri")]
     pub report_address_uri: Option<String>,
+    #[serde(rename = "allowScimProvisioning")]
+    pub allow_scim_provisioning: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2951,6 +2957,8 @@ pub struct GroupAccount {
     pub locale: Locale,
     #[serde(rename = "timeZone")]
     pub time_zone: Option<TimeZone>,
+    #[serde(rename = "externalId")]
+    pub external_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -6209,6 +6217,8 @@ pub struct UserAccount {
     pub quotas: VecMap<StorageQuota, u64>,
     #[serde(rename = "aliases")]
     pub aliases: List<EmailAlias>,
+    #[serde(rename = "externalId")]
+    pub external_id: Option<String>,
     #[serde(rename = "description")]
     pub description: Option<String>,
     #[serde(rename = "locale")]

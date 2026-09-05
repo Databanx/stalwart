@@ -1,6 +1,6 @@
 [package]
 name = "dav"
-version = "0.16.18"
+version = "0.16.20"
 edition = "2024"
 
 [dependencies]
@@ -28,3 +28,6 @@ chrono = "0.4.45"
 test_mode = []
 dev_mode = []
 enterprise = []
+
+[lints]
+workspace = true

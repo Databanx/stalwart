@@ -1,6 +1,6 @@
 [package]
 name = "store"
-version = "0.16.18"
+version = "0.16.20"
 edition = "2024"
 
 [dependencies]
@@ -76,3 +76,6 @@ redis = ["dep:redis", "deadpool", "deadpool/rt_tokio_1", "futures"]
 
 enterprise = []
 test_mode = []
+
+[lints]
+workspace = true

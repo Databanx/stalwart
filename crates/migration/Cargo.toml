@@ -1,6 +1,6 @@
 [package]
 name = "migration"
-version = "0.16.18"
+version = "0.16.20"
 edition = "2024"
 
 [dependencies]
@@ -32,3 +32,6 @@ enterprise = []
 
 [dev-dependencies]
 tokio = { version = "1.53", features = ["full"] }
+
+[lints]
+workspace = true

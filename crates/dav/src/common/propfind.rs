@@ -112,7 +112,7 @@ pub(crate) struct PropFindAccountData {
 #[derive(Clone, Default)]
 pub(crate) struct PropFindAccountQuota {
     pub used: u64,
-    pub available: u64,
+    pub available: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -377,6 +377,10 @@ impl PropFindRequestHandler for Server {
                     _ => unreachable!(),
                 };
 
+                for property in container_props.iter().chain(children_props) {
+                    response.set_namespace(property.namespace());
+                }
+
                 for item in paths {
                     let props = if item.is_container {
                         container_props
@@ -411,6 +415,10 @@ impl PropFindRequestHandler for Server {
             }
             PropFind::Prop(items) => items.clone(),
         };
+
+        for property in &properties {
+            response.set_namespace(property.namespace());
+        }
 
         let is_scheduling = collection_container == Collection::CalendarEventNotification;
         let account_info = self
@@ -559,7 +567,6 @@ impl PropFindRequestHandler for Server {
                             } else {
                                 fields_not_found.push(DavPropertyValue::empty(property.clone()));
                             }
-                            response.set_namespace(Namespace::CalendarServer);
                         }
                         WebDavProperty::GetLastModified => {
                             fields.push(DavPropertyValue::new(
@@ -632,14 +639,17 @@ impl PropFindRequestHandler for Server {
                             }
                         }
                         WebDavProperty::QuotaAvailableBytes => {
-                            if item.is_container {
-                                fields.push(DavPropertyValue::new(
-                                    property.clone(),
-                                    data.quota(self, account_id)
-                                        .await
-                                        .caused_by(trc::location!())?
-                                        .available,
-                                ));
+                            let available = if item.is_container {
+                                data.quota(self, account_id)
+                                    .await
+                                    .caused_by(trc::location!())?
+                                    .available
+                            } else {
+                                None
+                            };
+
+                            if let Some(available) = available {
+                                fields.push(DavPropertyValue::new(property.clone(), available));
                             } else if !skip_not_found {
                                 fields_not_found.push(DavPropertyValue::empty(property.clone()));
                             }
@@ -1059,7 +1069,6 @@ impl PropFindRequestHandler for Server {
 
                         _ => {
                             if !skip_not_found {
-                                response.set_namespace(property.namespace());
                                 fields_not_found.push(DavPropertyValue::empty(property.clone()));
                             }
                         }
@@ -1067,7 +1076,6 @@ impl PropFindRequestHandler for Server {
 
                     property => {
                         if !skip_not_found {
-                            response.set_namespace(property.namespace());
                             fields_not_found.push(DavPropertyValue::empty(property.clone()));
                         }
                     }
@@ -1133,27 +1141,32 @@ impl PropFindRequestHandler for Server {
 
     async fn dav_quota(&self, account_id: u32) -> trc::Result<PropFindAccountQuota> {
         let account = self.account(account_id).await.caused_by(trc::location!())?;
-        let quota = if account.quota_disk > 0 {
-            account.quota_disk
-        } else if let Some(tenant_id) = account.id_tenant {
-            let tenant = self.tenant(tenant_id).await.caused_by(trc::location!())?;
-            if tenant.quota_disk > 0 {
-                tenant.quota_disk
-            } else {
-                u32::MAX as u64
-            }
-        } else {
-            u32::MAX as u64
-        };
         let used = self
             .get_used_quota_account(account_id)
             .await
-            .caused_by(trc::location!())? as u64;
+            .caused_by(trc::location!())?
+            .max(0) as u64;
+        let mut available =
+            (account.quota_disk > 0).then(|| account.quota_disk.saturating_sub(used));
 
-        Ok(PropFindAccountQuota {
-            used,
-            available: quota.saturating_sub(used),
-        })
+        if let Some(tenant_id) = account.id_tenant {
+            let tenant = self.tenant(tenant_id).await.caused_by(trc::location!())?;
+
+            if tenant.quota_disk > 0 {
+                let tenant_used = self
+                    .get_used_quota_tenant(tenant_id)
+                    .await
+                    .caused_by(trc::location!())?
+                    .max(0) as u64;
+                let tenant_available = tenant.quota_disk.saturating_sub(tenant_used);
+
+                available = Some(available.map_or(tenant_available, |available| {
+                    available.min(tenant_available)
+                }));
+            }
+        }
+
+        Ok(PropFindAccountQuota { used, available })
     }
 }
 #[allow(clippy::too_many_arguments)]
@@ -1729,6 +1742,7 @@ async fn add_base_collection_response(
         .caused_by(trc::location!())?;
 
     for prop in properties {
+        response.set_namespace(prop.namespace());
         match &prop {
             DavProperty::WebDav(WebDavProperty::ResourceType) => {
                 fields.push(DavPropertyValue::new(
@@ -1754,7 +1768,6 @@ async fn add_base_collection_response(
                 .caused_by(trc::location!())?;
 
                 fields.push(DavPropertyValue::new(prop.clone(), hrefs));
-                response.set_namespace(Namespace::CalDav);
             }
             DavProperty::Principal(PrincipalProperty::AddressbookHomeSet) => {
                 let hrefs = build_home_set(
@@ -1768,7 +1781,6 @@ async fn add_base_collection_response(
                 .caused_by(trc::location!())?;
 
                 fields.push(DavPropertyValue::new(prop.clone(), hrefs));
-                response.set_namespace(Namespace::CardDav);
             }
             DavProperty::WebDav(WebDavProperty::SupportedReportSet) => {
                 let reports = match collection {
@@ -1779,9 +1791,9 @@ async fn add_base_collection_response(
                 };
 
                 fields.push(DavPropertyValue::new(prop.clone(), reports));
+                response.set_namespace(collection.namespace());
             }
             _ => {
-                response.set_namespace(prop.namespace());
                 fields_not_found.push(DavPropertyValue::empty(prop.clone()));
             }
         }

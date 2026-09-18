@@ -10,8 +10,8 @@ use calcard::{
     common::{PartialDateTime, timezone::Tz},
     icalendar::{
         ICalendar, ICalendarAction, ICalendarComponent, ICalendarComponentType, ICalendarDuration,
-        ICalendarEntry, ICalendarParameter, ICalendarParameterName, ICalendarParameterValue,
-        ICalendarProperty, ICalendarRelated, ICalendarValue,
+        ICalendarEntry, ICalendarParameter, ICalendarParameterValue, ICalendarProperty,
+        ICalendarRelated, ICalendarValue,
     },
     jscalendar::{JSCalendar, JSCalendarDateTime, JSCalendarProperty, JSCalendarValue},
 };
@@ -26,8 +26,9 @@ use groupware::{
     calendar::{
         ALERT_EMAIL, ALERT_RELATIVE_TO_END, ArchivedDefaultAlert, Calendar, CalendarEvent,
         CalendarEventData, EVENT_DRAFT, EVENT_HIDE_ATTENDEES, EVENT_INVITE_OTHERS,
-        EVENT_INVITE_SELF,
-        expand::{CalendarEventExpansion, resolve_local},
+        EVENT_INVITE_SELF, PREF_USE_DEFAULT_ALERTS,
+        expand::{CalendarEventExpansion, ComponentRecurrenceId, RecurrenceKey, resolve_local},
+        itip::ItipSendStatus,
     },
     scheduling::{
         ItipMessages,
@@ -45,7 +46,6 @@ use jmap_proto::{
     types::state::State,
 };
 use jmap_tools::{JsonPointerHandler, JsonPointerItem, Key, Map, Value};
-use registry::schema::enums::Permission;
 use std::{borrow::Cow, str::FromStr};
 use store::{
     ValueKey,
@@ -187,10 +187,10 @@ impl CalendarEventSet for Server {
                 continue;
             }
             let update = EventUpdate::for_document(&mut updates, document_id, has_synthetic_ids);
-            if let Some(expansion_id) = id.expansion_id() {
+            if let Some(recurrence_key) = id.recurrence_key() {
                 update.instances.push(InstanceOp {
                     id,
-                    expansion_id,
+                    recurrence_key,
                     patch: Some(object),
                     target: None,
                     is_destroy: false,
@@ -208,7 +208,7 @@ impl CalendarEventSet for Server {
             }
         }
         for id in will_destroy.iter().copied() {
-            let Some(expansion_id) = id.expansion_id() else {
+            let Some(recurrence_key) = id.recurrence_key() else {
                 continue;
             };
             let document_id = id.document_id();
@@ -220,7 +220,7 @@ impl CalendarEventSet for Server {
                 .instances
                 .push(InstanceOp {
                     id,
-                    expansion_id,
+                    recurrence_key,
                     patch: None,
                     target: None,
                     is_destroy: true,
@@ -295,7 +295,7 @@ impl CalendarEventSet for Server {
 
             // Process changes
             if let Err(err) = update_calendar_event(
-                access_token,
+                access_token.personal_id(account_id, Collection::Calendar),
                 update.base_id,
                 update.base_patch.take().unwrap_or_default(),
                 &mut new_calendar_event,
@@ -428,12 +428,17 @@ impl CalendarEventSet for Server {
 
             // Scheduling
             let mut itip_messages = None;
-            if send_scheduling_messages
-                && self.core.groupware.itip_enabled
-                && !account_info.addresses().is_empty()
-                && access_token.has_permission(Permission::CalendarSchedulingSend)
-                && new_calendar_event.data.event_range_end() > now
-            {
+            let itip_status = if send_scheduling_messages {
+                ItipSendStatus::resolve(
+                    self,
+                    access_token,
+                    &account_info,
+                    new_calendar_event.data.event_range_end(),
+                )
+            } else {
+                ItipSendStatus::NotRequested
+            };
+            if itip_status.is_send() {
                 if let Some(calendar_address) = itip_unreachable_recipient(
                     &new_calendar_event.data.event,
                     account_info.addresses(),
@@ -504,12 +509,34 @@ impl CalendarEventSet for Server {
                             continue 'update;
                         }
 
+                        trc::event!(
+                            Calendar(trc::CalendarEvent::ItipMessageError),
+                            AccountId = account_id,
+                            DocumentId = document_id,
+                            Reason = err.to_string(),
+                        );
+
                         // Event changed, but there are no iTIP messages to send
                         if let Some(schedule_tag) = &mut new_calendar_event.schedule_tag {
                             *schedule_tag += 1;
                         }
                     }
                 }
+            } else if let Some(reason) = itip_status.reason() {
+                if itip_status.is_denied() {
+                    update.fail(
+                        &mut response,
+                        SetError::forbidden().with_description(reason),
+                    );
+                    continue 'update;
+                }
+
+                trc::event!(
+                    Calendar(trc::CalendarEvent::ItipMessageError),
+                    AccountId = account_id,
+                    DocumentId = document_id,
+                    Reason = reason,
+                );
             }
 
             // Validate quota
@@ -609,13 +636,40 @@ impl CalendarEventSet for Server {
                 }
             }
 
+            // Scheduling
+            let itip_status = if send_scheduling_messages {
+                ItipSendStatus::resolve(
+                    self,
+                    access_token,
+                    &account_info,
+                    calendar_event.inner.data.event_range_end(),
+                )
+            } else {
+                ItipSendStatus::NotRequested
+            };
+            if let Some(reason) = itip_status.reason() {
+                if itip_status.is_denied() {
+                    response
+                        .not_destroyed
+                        .append(id, SetError::forbidden().with_description(reason));
+                    continue 'destroy;
+                }
+
+                trc::event!(
+                    Calendar(trc::CalendarEvent::ItipMessageError),
+                    AccountId = account_id,
+                    DocumentId = document_id,
+                    Reason = reason,
+                );
+            }
+
             // Delete event
             DestroyArchive(calendar_event)
                 .delete_all(
                     &account_info,
                     account_id,
                     document_id,
-                    send_scheduling_messages,
+                    itip_status.is_send(),
                     &mut batch,
                 )
                 .caused_by(trc::location!())?;
@@ -657,7 +711,7 @@ impl CalendarEventSet for Server {
         // Process changes
         let mut event = CalendarEvent::default();
         let use_default_alerts = match update_calendar_event(
-            access_token,
+            access_token.personal_id(account_id, Collection::Calendar),
             None,
             updates,
             &mut event,
@@ -773,12 +827,17 @@ impl CalendarEventSet for Server {
 
         // Scheduling
         let mut itip_messages = None;
-        if send_scheduling_messages
-            && self.core.groupware.itip_enabled
-            && !account_info.addresses().is_empty()
-            && access_token.has_permission(Permission::CalendarSchedulingSend)
-            && event.data.event_range_end() > now() as i64
-        {
+        let itip_status = if send_scheduling_messages {
+            ItipSendStatus::resolve(
+                self,
+                access_token,
+                account_info,
+                event.data.event_range_end(),
+            )
+        } else {
+            ItipSendStatus::NotRequested
+        };
+        if itip_status.is_send() {
             if let Some(calendar_address) =
                 itip_unreachable_recipient(&event.data.event, account_info.addresses())
             {
@@ -809,8 +868,24 @@ impl CalendarEventSet for Server {
                             .with_property(JSCalendarProperty::Participants)
                             .with_description(err.to_string())));
                     }
+
+                    trc::event!(
+                        Calendar(trc::CalendarEvent::ItipMessageError),
+                        AccountId = account_id,
+                        Reason = err.to_string(),
+                    );
                 }
             }
+        } else if let Some(reason) = itip_status.reason() {
+            if itip_status.is_denied() {
+                return Ok(Err(SetError::forbidden().with_description(reason)));
+            }
+
+            trc::event!(
+                Calendar(trc::CalendarEvent::ItipMessageError),
+                AccountId = account_id,
+                Reason = reason,
+            );
         }
 
         // Validate quota
@@ -868,7 +943,7 @@ fn stamp_updated(ical: &mut ICalendar, timestamp: i64) {
 }
 
 fn update_calendar_event<'x>(
-    _access_token: &AccessToken,
+    personal_id: u32,
     expected_id: Option<Id>,
     updates: Value<'x, JSCalendarProperty<Id>, JSCalendarValue<Id, BlobId>>,
     event: &mut CalendarEvent,
@@ -935,6 +1010,15 @@ fn update_calendar_event<'x>(
             }
             (JSCalendarProperty::UseDefaultAlerts, Value::Bool(set)) => {
                 use_default_alerts = set;
+                if set {
+                    event.preferences_mut(personal_id).flags |= PREF_USE_DEFAULT_ALERTS;
+                } else if let Some(preferences) = event
+                    .preferences
+                    .iter_mut()
+                    .find(|p| p.account_id == personal_id)
+                {
+                    preferences.flags &= !PREF_USE_DEFAULT_ALERTS;
+                }
             }
             (JSCalendarProperty::UtcStart, Value::Element(JSCalendarValue::DateTime(start))) => {
                 utc_start = Some(start.timestamp);
@@ -1096,7 +1180,7 @@ struct EventUpdate<'x> {
 
 struct InstanceOp<'x> {
     id: Id,
-    expansion_id: u32,
+    recurrence_key: RecurrenceKey,
     patch: Option<Value<'x, JSCalendarProperty<Id>, JSCalendarValue<Id, BlobId>>>,
     target: Option<InstanceTarget>,
     is_destroy: bool,
@@ -1201,25 +1285,27 @@ impl<'x> EventUpdate<'x> {
         data: &CalendarEventData,
         response: &mut SetResponse<calendar_event::CalendarEvent>,
     ) -> InstancePlan {
-        let mut expansion_ids = self
+        let mut recurrence_keys = self
             .instances
             .iter()
-            .map(|instance| instance.expansion_id)
+            .map(|instance| instance.recurrence_key)
             .collect::<AHashSet<_>>();
         let expansions = data
-            .expand_from_ids(&mut expansion_ids, Tz::UTC)
+            .expand_from_ids(&mut recurrence_keys, Tz::UTC)
             .unwrap_or_default();
         let uid = data.event.uids().next();
         let mut has_base_event = false;
 
         self.instances.retain_mut(|instance| {
-            match expansions
+            let mut matches = expansions
                 .iter()
-                .find(|expansion| expansion.expansion_id == instance.expansion_id)
-                .filter(|expansion| expansion.is_valid())
-                .map_or(InstanceResolution::NotFound, |expansion| {
-                    InstanceTarget::resolve(expansion, data, uid)
-                }) {
+                .filter(|expansion| expansion.recurrence_key() == Some(instance.recurrence_key));
+            let resolution = match (matches.next(), matches.next()) {
+                (Some(expansion), None) => InstanceTarget::resolve(expansion, data, uid),
+                _ => InstanceResolution::NotFound,
+            };
+
+            match resolution {
                 InstanceResolution::Instance(target) => {
                     instance.target = Some(target);
                     true
@@ -1378,73 +1464,26 @@ impl InstanceTarget {
             return InstanceResolution::BaseEvent;
         }
 
-        let (recurrence_id, recurrence_id_naive) = if is_override {
-            match Self::recurrence_id(component, data, expansion.comp_id) {
-                Some(recurrence_id) => recurrence_id,
-                None => return InstanceResolution::NotFound,
-            }
-        } else {
-            (expansion.start, expansion.start_naive)
-        };
-
-        if is_override && !Self::is_own_occurrence(component, data, expansion) {
-            return InstanceResolution::ThisAndFuture;
+        if is_override && expansion.own_recurrence_id.is_none() {
+            return if data
+                .component_tz(expansion.comp_id)
+                .and_then(|component_tz| component.recurrence_id(component_tz))
+                .is_none()
+            {
+                InstanceResolution::NotFound
+            } else {
+                InstanceResolution::ThisAndFuture
+            };
         }
+        let recurrence_id = expansion.recurrence_id();
 
         InstanceResolution::Instance(InstanceTarget {
             is_override,
-            recurrence_id,
-            recurrence_id_naive,
+            recurrence_id: recurrence_id.utc,
+            recurrence_id_naive: recurrence_id.naive,
             start_naive: expansion.start_naive,
             duration: expansion.end - expansion.start,
         })
-    }
-
-    fn is_own_occurrence(
-        component: &ICalendarComponent,
-        data: &CalendarEventData,
-        expansion: &CalendarEventExpansion,
-    ) -> bool {
-        !component
-            .property(&ICalendarProperty::RecurrenceId)
-            .is_some_and(|entry| {
-                entry
-                    .parameters(&ICalendarParameterName::Range)
-                    .next()
-                    .is_some()
-            })
-            || data
-                .expand_single(expansion.comp_id, Tz::UTC)
-                .is_some_and(|first| first.start_naive == expansion.start_naive)
-    }
-
-    fn recurrence_id(
-        component: &ICalendarComponent,
-        data: &CalendarEventData,
-        comp_id: u32,
-    ) -> Option<(i64, i64)> {
-        let entry = component.property(&ICalendarProperty::RecurrenceId)?;
-        let tz = entry
-            .tz_id()
-            .and_then(|tz| Tz::from_str(tz).ok())
-            .or_else(|| {
-                data.time_ranges
-                    .iter()
-                    .find(|range| range.id as u32 == comp_id)
-                    .and_then(|range| Tz::from_id(range.start_tz))
-            })
-            .unwrap_or(Tz::UTC);
-        let date_time = entry
-            .values
-            .first()?
-            .as_partial_date_time()?
-            .to_date_time()?
-            .to_date_time_with_tz(tz)?;
-
-        Some((
-            date_time.timestamp(),
-            date_time.naive_local().and_utc().timestamp(),
-        ))
     }
 
     fn find_override(

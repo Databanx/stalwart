@@ -105,6 +105,24 @@ pub async fn test(test: &TestServer) {
         "2007-03-07T12:00:00"
     );
 
+    // Synthetic instances return null recurrence properties when requested
+    for start in [
+        "2007-03-05T12:00:00",
+        "2007-03-06T12:00:00",
+        "2007-03-07T15:00:00",
+        "2007-03-08T12:00:00",
+        "2007-03-09T12:00:00",
+    ] {
+        let instance = instance(&instances, start);
+        for property in ["recurrenceRule", "recurrenceOverrides"] {
+            assert_eq!(
+                instance.get(property),
+                Some(&Value::Null),
+                "{property} on {start}: {instance:?}"
+            );
+        }
+    }
+
     // Unknown instances are reported as not found
     let unknown_id =
         Id::from_parts(1000, Id::from_str(&recurring_id).unwrap().document_id()).to_string();
@@ -738,14 +756,144 @@ pub async fn test(test: &TestServer) {
         .await
         .with_status(StatusCode::NO_CONTENT);
 
-    // Clean up
-    account
-        .jmap_destroy(
+    // Synthetic ids keep identifying the same occurrence across writes
+    let series_calendar_id = account
+        .jmap_create(
             MethodObject::Calendar,
-            [&calendar_id],
-            [("onDestroyRemoveEvents", true)],
+            [json!({
+                "name": "Stable instance ids",
+                "timeZone": "US/Eastern",
+            })],
+            Vec::<(&str, &str)>::new(),
         )
-        .await;
+        .await
+        .created(0)
+        .id()
+        .to_string();
+    account
+        .jmap_create(
+            MethodObject::CalendarEvent,
+            [json!({
+              "@type": "Event",
+              "uid": "stable-instance-ids@example.com",
+              "title": "Weekly sync",
+              "start": "2007-04-02T09:00:00",
+              "duration": "PT1H",
+              "timeZone": "US/Eastern",
+              "updated": "2007-02-06T00:11:21Z",
+              "recurrenceRule": {
+                "frequency": "weekly",
+                "count": 5
+              },
+              "calendarIds": {
+                &series_calendar_id: true
+              }
+            })],
+            Vec::<(&str, &str)>::new(),
+        )
+        .await
+        .created(0);
+    test.wait_for_tasks().await;
+
+    let instances = expand_instances(account, &series_calendar_id).await;
+    let held_ids = instances
+        .iter()
+        .map(|instance| instance.id().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        starts(&instances),
+        [
+            "2007-04-02T09:00:00",
+            "2007-04-09T09:00:00",
+            "2007-04-16T09:00:00",
+            "2007-04-23T09:00:00",
+            "2007-04-30T09:00:00"
+        ]
+    );
+
+    let moved_id = instance_id(&instances, "2007-04-09T09:00:00");
+    account
+        .jmap_update(
+            MethodObject::CalendarEvent,
+            [(
+                &moved_id,
+                json!({
+                    "title": "Weekly sync, moved",
+                    "start": "2007-04-09T14:00:00"
+                }),
+            )],
+            Vec::<(&str, &str)>::new(),
+        )
+        .await
+        .updated(&moved_id);
+    test.wait_for_tasks().await;
+
+    let held = account
+        .jmap_get(
+            MethodObject::CalendarEvent,
+            ["id", "start", "recurrenceId"],
+            held_ids.clone(),
+        )
+        .await
+        .list()
+        .to_vec();
+    let held_start = |id: &str| {
+        held.iter()
+            .find(|event| event.id() == id)
+            .unwrap_or_else(|| panic!("Missing instance {id}: {held:?}"))
+            .text_field("start")
+    };
+    assert_eq!(
+        held_ids.iter().map(|id| held_start(id)).collect::<Vec<_>>(),
+        [
+            "2007-04-02T09:00:00",
+            "2007-04-09T14:00:00",
+            "2007-04-16T09:00:00",
+            "2007-04-23T09:00:00",
+            "2007-04-30T09:00:00"
+        ]
+    );
+    assert_eq!(
+        held.iter()
+            .find(|event| event.id() == held_ids[1])
+            .map(|event| event.text_field("recurrenceId")),
+        Some("2007-04-09T09:00:00")
+    );
+
+    // Destroying an id held across a write removes the occurrence it was issued for
+    assert_eq!(
+        account
+            .jmap_destroy(
+                MethodObject::CalendarEvent,
+                [&held_ids[2]],
+                Vec::<(&str, &str)>::new(),
+            )
+            .await
+            .destroyed()
+            .collect::<Vec<_>>(),
+        [held_ids[2].as_str()]
+    );
+    test.wait_for_tasks().await;
+    assert_eq!(
+        starts(&expand_instances(account, &series_calendar_id).await),
+        [
+            "2007-04-02T09:00:00",
+            "2007-04-09T14:00:00",
+            "2007-04-23T09:00:00",
+            "2007-04-30T09:00:00"
+        ]
+    );
+
+    // Clean up
+    for calendar_id in [&calendar_id, &series_calendar_id] {
+        account
+            .jmap_destroy(
+                MethodObject::Calendar,
+                [calendar_id],
+                [("onDestroyRemoveEvents", true)],
+            )
+            .await;
+    }
 }
 
 async fn expand_instances(account: &Account, calendar_id: &str) -> Vec<Value> {
@@ -782,6 +930,8 @@ async fn expand_instances(account: &Account, calendar_id: &str) -> Vec<Value> {
                 "title",
                 "recurrenceId",
                 "locations",
+                "recurrenceRule",
+                "recurrenceOverrides",
             ],
             ids,
         )

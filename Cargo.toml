@@ -35,15 +35,6 @@ members = [
 [workspace.lints.clippy]
 result_unit_err = "allow"
 
-[patch.crates-io]
-hickory-proto = { git = "https://github.com/hickory-dns/hickory-dns", rev = "e645086f7863eaab8d961421a348b06ea613ebd3" }
-hickory-net = { git = "https://github.com/hickory-dns/hickory-dns", rev = "e645086f7863eaab8d961421a348b06ea613ebd3" }
-hickory-resolver = { git = "https://github.com/hickory-dns/hickory-dns", rev = "e645086f7863eaab8d961421a348b06ea613ebd3" }
-# Databanx fork patch: rust-s3 0.37.2 signs Content-Length/Content-Type on
-# bodyless DELETEs, which Cloudflare R2 rejects with SignatureDoesNotMatch
-# (durch/rust-s3#466). Remove once fixed upstream.
-rust-s3 = { git = "https://github.com/Databanx/rust-s3.git", rev = "6380381c8a9298dc12206b39bb54d68934a71d9b" }
-
 [profile.dev]
 opt-level = 0
 debug = 1
@@ -86,3 +77,9 @@ incremental = false
 debug-assertions = false
 overflow-checks = false
 rpath = false
+
+# Databanx fork patches: rust-s3 0.37.2 signs Content-Length/Content-Type on
+# bodyless DELETEs, which Cloudflare R2 rejects with SignatureDoesNotMatch
+# (durch/rust-s3#466). Remove once fixed upstream.
+[patch.crates-io]
+rust-s3 = { git = "https://github.com/Databanx/rust-s3.git", rev = "6380381c8a9298dc12206b39bb54d68934a71d9b" }

@@ -38,8 +38,11 @@ impl OpenIdDirectory {
                 }
                 err => AuthEvent::Error.into_err().reason(err),
             }),
-            _ => Err(AuthEvent::Error
+            // Password logins can never succeed against an OIDC directory; report them
+            // as failed authentications so they count towards fail2ban.
+            Credentials::Basic { username, .. } => Err(AuthEvent::Failed
                 .into_err()
+                .ctx(trc::Key::AccountName, username.clone())
                 .reason("Unsupported credentials type for OIDC backend")),
         }
     }

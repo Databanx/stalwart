@@ -222,7 +222,7 @@ B=$(grep -n 'server.startup' $F | tail -1 | cut -d: -f1)       # line of the new
 sed -n "${B},\$p" $F | grep -E ' (WARN|ERROR) ' | grep -oE '\([a-z0-9-]+\.[a-z0-9.-]+\)' | sort | uniq -c
 ```
 
-Expected on boot: `server.startup` with the new version, `cluster.startup`, `queue.started`, `network.listen-start` per listener, and a single `registry.build-warning` (DnsResolver cannot validate DNSSEC, DANE disabled — pre-existing, not a regression). Steady-state noise that is not a regression: `smtp.invalid-ehlo` bursts from scanners and `auth.error`/`auth.failed` from password bots. Compare the WARN/ERROR event counts against the same window before the swap rather than expecting zero.
+Expected on boot: `server.startup` with the new version, `cluster.startup`, `queue.started`, `network.listen-start` per listener, and a single `registry.build-warning` (DnsResolver cannot validate DNSSEC, DANE disabled — pre-existing, not a regression). Steady-state noise that is not a regression: `smtp.invalid-ehlo` bursts from scanners and `security.ip-blocked`. Note that `auth.failed` is a **Debug**-level event and never reaches the Info log — failed logins are invisible there; to see them, read the fail2ban counters in Redis (keys `0x05` + login/IP bytes + 8-byte day bucket, limit `authBanRate` = 100/day) or look for `security.authentication-ban` (Info). Compare the WARN/ERROR event counts against the same window before the swap rather than expecting zero.
 
 The freshly scp'd binary in `/tmp/stalwart.new` arrives owned by `ubuntu:ubuntu` — the `chown stalwart:stalwart` is mandatory or systemd will start the process but it won't be able to read its config / write logs. **Don't skip it.**
 

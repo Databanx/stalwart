@@ -1,12 +1,12 @@
 ---
 name: build-stalwart
 description: Use when building, releasing, or testing the Databanx fork of stalwart for production. Covers the production feature set, the local Docker ARM64 build environment, the binary distribution to mx1/mx2/mx3, the in-place swap procedure, and the `vX.Y.Z-databanx-N` tag convention. Trigger phrases include "build the fork", "compile stalwart", "make a databanx tag", "deploy the patches", "ship to the mx servers", "test the binary on the server".
-version: 2.0.0
+version: 2.1.0
 ---
 
 # Building the Databanx fork of stalwart
 
-The build is **slow and expensive to redo** — get the feature set right the first time. A cold build in the local Docker builder takes ~13 min (18 cores); the LTO fat + codegen-units=1 link step alone is several minutes.
+The build is **slow and expensive to redo** — get the feature set right the first time. A cold build in the local Docker builder takes ~13 min (18 cores); the LTO fat + codegen-units=1 link step alone is several minutes. A version bump touches every workspace crate, so even with the cache warm expect ~15 min (v0.16.23: 14m46s).
 
 ## Hosts
 
@@ -39,7 +39,7 @@ cargo build --release \
 
 (`JEMALLOC_SYS_WITH_LG_PAGE=16` must be in the environment — the builder image sets it; see below.)
 
-**Reference size**: ~63 MB stripped on aarch64 with this exact set (v0.16.8). If your build comes out noticeably larger (≥ 70 MB), someone re-added a backend — check the rustc invocation for `--cfg feature="rocks"` etc.
+**Reference size**: the stripped aarch64 binary grows slowly with upstream (v0.16.8: ~63 MB; v0.16.20: 69.6 MB; v0.16.22: 70.1 MB; v0.16.23: 70.3 MB). Compare against the previous release's size in its tag message, not against a fixed number. A jump of several MB from one release to the next means someone re-added a backend — check the rustc invocation for `--cfg feature="rocks"` etc. The backend `strings` check below is the real test.
 
 **Do not add `rocks`, `sqlite`, `postgres`, `mysql`, `nats`, `azure`, `zenoh`, or `kafka`** unless you have first verified the production config actually references that backend. Each one drags in a heavy dependency that bloats the binary and lengthens the build with zero runtime benefit. If a future config change adds a backend, update the feature list *and* this table — don't preemptively pad it.
 
@@ -139,11 +139,30 @@ done
 
 ## Update flow (new upstream version)
 
-1. `git fetch upstream --tags` and compare with the fork's latest `vX.Y.Z-databanx-N` tag.
+1. `git fetch upstream --tags` and compare with the fork's latest `vX.Y.Z-databanx-N` tag. Read the new `CHANGELOG.md` entries and check which ones touch our backends (FoundationDB, Redis, S3, Meilisearch, OIDC) — that is the case for bumping.
 2. `git checkout -b update/vX.Y.Z vX.Y.Z` (the upstream tag).
-3. Cherry-pick the fork patches from the previous update branch (currently two: `fix: correct total count with collapseThreads in Email/query`, `perf: parallelize SearchSnippet/get blob fetches`). Use `git -c commit.gpgsign=false cherry-pick ...`.
-4. Validate: `cargo check -p jmap` (native macOS is fine for this).
-5. Push the branch, build in Docker, verify backends, tag, open the PR to `main`.
+3. Cherry-pick the fork commits from the previous release, oldest first. List them from the previous tag (`git log --reverse --no-merges --first-parent --oneline vPREV..vPREV-databanx-N`); do **not** use `upstream..origin/main`, which also lists every stale copy from older bumps. As of v0.16.23-databanx-1 they are:
+   - `perf: parallelize SearchSnippet/get blob fetches` (adds the `snippetConcurrency` setting)
+   - `fix: patch rust-s3 to unblock blob purge DELETEs on Cloudflare R2` (pin to `Databanx/rust-s3`; drop it once crates.io ships the durch/rust-s3#466 fix and upstream bumps)
+   - `ci: remove os workflows de release do upstream deste fork` + `ci: remove o ci-retry.yml do upstream`
+   - `docs: track .claude skills; …` (this skill)
+   - `fix: count OIDC password attempts towards fail2ban` (`crates/directory/src/backend/oidc/lookup.rs`)
+
+   Use `git -c commit.gpgsign=false cherry-pick ...`. `fix: correct total count with collapseThreads` is retired (upstream fixed it in v0.16.12) — don't port it.
+4. **Validate the `Property` enum even if the cherry-pick applied cleanly.** The SearchSnippet patch adds `Property::SnippetConcurrency` with a hardcoded discriminant; when upstream adds variants in the same range, git auto-merges into **two variants with the same number** without any conflict marker (it only flags `const COUNT`, if anything):
+
+   ```
+   python3 -c "
+   import re; src=open('crates/registry/src/schema/properties.rs').read()
+   body=re.search(r'pub enum Property \{(.*?)\n\}', src, re.S).group(1)
+   v=[int(x) for x in re.findall(r'^\s+\w+ = (\d+),', body, re.M)]
+   print(len(v), min(v), max(v), 'dup:', [x for x in set(v) if v.count(x)>1])"
+   grep -n 'const COUNT' crates/registry/src/schema/properties_impl.rs
+   ```
+
+   Expected: `len == max+1`, `min == 0`, `dup: []`, and the `Property` `const COUNT` equal to `len`. On a collision, move `SnippetConcurrency` to the first free number and fix the reverse-parse arm (`NNN => Some(Property::SnippetConcurrency)` in `properties_impl.rs`) and `const COUNT`. In `structs_impl.rs`, keep `snippet_concurrency` **last** in pickle/unpickle and adjust `Map::with_capacity`.
+5. Validate: `cargo check -p registry -p jmap -p directory` (native macOS is fine for this). The unused-import warnings in `common`/`jmap`/`services` come from feature flags upstream — not ours.
+6. Push the branch, build in Docker, verify backends, tag, open the PR to `main` (merge commit, like the previous `update/*` PRs).
 
 ## Tag and release convention
 
@@ -191,11 +210,23 @@ sleep 4
 sudo systemctl is-active stalwart            # expect: active
 sudo ss -tlnp | grep -E ":(25|993|8080)"     # all three should be listening
 /opt/stalwart/bin/stalwart --version
+timeout 5 bash -c 'exec 3<>/dev/tcp/127.0.0.1/25; head -1 <&3'      # 220 ... Stalwart ESMTP
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/healthz/live   # 200
 ```
+
+**Server logs are NOT in the journal.** Stalwart writes its own log to `/opt/stalwart/logs/stalwart.log.YYYY-MM-DD` (UTC, rotated daily); the journal only has systemd's start/stop lines. A `journalctl | grep -E 'ERROR|WARN'` returning nothing proves nothing (this gave a false "clean boot" on the v0.16.23 rollout). Check the file:
+
+```
+F=/opt/stalwart/logs/stalwart.log.$(date -u +%F)
+B=$(grep -n 'server.startup' $F | tail -1 | cut -d: -f1)       # line of the new boot
+sed -n "${B},\$p" $F | grep -E ' (WARN|ERROR) ' | grep -oE '\([a-z0-9-]+\.[a-z0-9.-]+\)' | sort | uniq -c
+```
+
+Expected on boot: `server.startup` with the new version, `cluster.startup`, `queue.started`, `network.listen-start` per listener, and a single `registry.build-warning` (DnsResolver cannot validate DNSSEC, DANE disabled — pre-existing, not a regression). Steady-state noise that is not a regression: `smtp.invalid-ehlo` bursts from scanners and `auth.error`/`auth.failed` from password bots. Compare the WARN/ERROR event counts against the same window before the swap rather than expecting zero.
 
 The freshly scp'd binary in `/tmp/stalwart.new` arrives owned by `ubuntu:ubuntu` — the `chown stalwart:stalwart` is mandatory or systemd will start the process but it won't be able to read its config / write logs. **Don't skip it.**
 
-**Port bind can lag the `active` state by a few seconds** (observed on mx1: `active` with 0 listeners at +4 s, all 3 listening at ~+15 s). If the listener count is 0 right after start, re-check before assuming failure — only the journal tells you about a real crash (`journalctl -u stalwart -n 20`).
+**Port bind can lag the `active` state by a few seconds** (observed on mx1: `active` with 0 listeners at +4 s, all 3 listening at ~+15 s). If the listener count is 0 right after start, re-check before assuming failure — a real crash shows in the journal as a failed/restarting unit (`journalctl -u stalwart -n 20`, `systemctl show stalwart -p NRestarts`) and its cause in the log file above.
 
 ### Rollback
 
@@ -219,6 +250,15 @@ cargo check -p tests --tests # for test-only changes
 
 With the production feature set (no `rocks`), workspace checks avoid `librocksdb-sys` entirely. Per-crate `cargo check -p common` may surface unrelated `mail_auth::dkim::generate` import errors due to feature flags — these go away with the production feature set and are not regressions.
 
+## Reporting fork fixes upstream
+
+Upstream (`stalwartlabs/stalwart`) does not take issues or PRs from us directly:
+
+- GitHub issues are **auto-closed** (`blank_issues_enabled: false`; the only template is "auto-closed"). Bugs go to **support.stalw.art** (GitHub login); a maintainer converts confirmed ones into issues.
+- PRs are limited to **vouched contributors** (ask at support.stalw.art first), need the Fiduciary Contributor License Agreement, and the `CONTRIBUTING.md` bans AI-generated code.
+
+So for a fork fix: write the bug report (symptom, cause with file paths, suggested fix in prose) and have the user post it on support.stalw.art under their own account — never post on their behalf. Keep the patch in the fork until an upstream release carries an equivalent fix, and re-check at every bump.
+
 ## What NOT to do
 
 - Do not build on mx1, mx2 or mx3 — no toolchain on any of them (mx1 lost its build env in the 2026-06 downsize; it has 2 vCPU / 8 GB and is a production peer).
@@ -230,3 +270,5 @@ With the production feature set (no `rocks`), workspace checks avoid `librocksdb
 - Do not bump `version` fields in `Cargo.toml`. Use the `vX.Y.Z-databanx-N` git tag instead.
 - Do not skip `chown stalwart:stalwart` after dropping the new binary into `/opt/stalwart/bin/`.
 - Do not swap all three peers in parallel. One at a time, verify, then move on.
+- Do not trust `journalctl` for server errors — Stalwart logs to `/opt/stalwart/logs/stalwart.log.YYYY-MM-DD`.
+- Do not open issues or PRs on `stalwartlabs/stalwart` from the harness — see "Reporting fork fixes upstream".

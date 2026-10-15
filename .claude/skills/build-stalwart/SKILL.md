@@ -1,7 +1,7 @@
 ---
 name: build-stalwart
 description: Use when building, releasing, or testing the Databanx fork of stalwart for production. Covers the production feature set, the local Docker ARM64 build environment, the binary distribution to mx1/mx2/mx3, the in-place swap procedure, and the `vX.Y.Z-databanx-N` tag convention. Trigger phrases include "build the fork", "compile stalwart", "make a databanx tag", "deploy the patches", "ship to the mx servers", "test the binary on the server".
-version: 2.1.0
+version: 2.2.0
 ---
 
 # Building the Databanx fork of stalwart
@@ -89,13 +89,14 @@ From the repo checkout (branch `update/<version>` with the fork patches applied)
 docker run --rm --name stalwart-build \
   -v /Users/eldon/code/databanx/localmail/stalwart:/src \
   -v stalwart-cargo-registry:/root/.cargo/registry \
+  -v stalwart-cargo-git:/root/.cargo/git \
   -v stalwart-target:/target \
   -e CARGO_TARGET_DIR=/target \
   stalwart-builder-arm64 \
   cargo build --release --no-default-features --features "foundationdb s3 redis enterprise"
 ```
 
-The named volumes (`stalwart-cargo-registry`, `stalwart-target`) keep the cargo cache off the slow macOS bind mount and survive OrbStack restarts. Build time: ~13 min cold, a few minutes warm. Do not `docker volume rm` them casually.
+The named volumes (`stalwart-cargo-registry`, `stalwart-cargo-git`, `stalwart-target`) keep the cargo cache off the slow macOS bind mount and survive OrbStack restarts. Build time: ~13 min cold, a few minutes warm. Do not `docker volume rm` them casually.
 
 Extract the binary and smoke-test it **inside the container** (it links `libfdb_c.so`, so it won't run on macOS):
 
@@ -147,6 +148,7 @@ done
    - `ci: remove os workflows de release do upstream deste fork` + `ci: remove o ci-retry.yml do upstream` — conflicts whenever upstream touches `.github/` (v0.16.26: modify/delete on every workflow + `dependabot.yml`). Resolution: `git rm` the upstream workflows (only `test.yml` stays) and keep the fork's `dependabot.yml` (`git checkout --theirs`, cargo only).
    - `docs: track .claude skills; …` (this skill)
    - `fix: count OIDC password attempts towards fail2ban` (`crates/directory/src/backend/oidc/lookup.rs`)
+   - `fix: move SnippetConcurrency discriminant to 935` — the per-bump discriminant fix. Cherry-pick it right after the `perf:` commit (or squash the two) so `SnippetConcurrency` doesn't fall back to 934, which is upstream's `ServerId` since v0.16.24. Step 4 still applies: upstream may have taken 935 too.
    - plus the docs-only commits made on `main` after the previous tag (skill updates), so the branch carries the current skill.
 
    Use `git -c commit.gpgsign=false cherry-pick ...`. `fix: correct total count with collapseThreads` is retired (upstream fixed it in v0.16.12) — don't port it. The rust-s3 pin (`fix: patch rust-s3 to unblock blob purge DELETEs on Cloudflare R2`) is retired too: upstream v0.16.26 moved to rust-s3 0.38.0, which ships the durch/rust-s3#466 fix.
@@ -194,7 +196,7 @@ Format: `vX.Y.Z-databanx-N` — annotated tag on top of the upstream `vX.Y.Z` ba
 
 - Examples: `v0.16.5-databanx-1`, `v0.16.8-databanx-1`.
 - Do **not** bump version strings in `Cargo.toml`. Crates stay pinned to the upstream version they branched from.
-- The tag points at the HEAD commit of `update/<version>` that's actually being deployed.
+- The tag points at the commit whose tree produced the deployed binary. Docs-only commits after the tag (skill updates, a merge of `origin/main` resolved in favour of the branch) are fine as long as `git diff <tag> HEAD -- crates Cargo.toml Cargo.lock` stays empty; any code change after the tag needs a rebuild and a new `-databanx-N` tag.
 - The annotated tag message should list the fork-specific commits (short hash + subject) and the binary sha256, so provenance is obvious from `git show <tag>` alone.
 - Do not push `update/<version>` directly to `main` — open a PR for review.
 

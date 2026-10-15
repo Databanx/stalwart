@@ -1,17 +1,18 @@
 ---
 name: build-stalwart
 description: Use when building, releasing, or testing the Databanx fork of stalwart for production. Covers the production feature set, the local Docker ARM64 build environment, the binary distribution to mx1/mx2/mx3, the in-place swap procedure, and the `vX.Y.Z-databanx-N` tag convention. Trigger phrases include "build the fork", "compile stalwart", "make a databanx tag", "deploy the patches", "ship to the mx servers", "test the binary on the server".
-version: 2.1.0
+version: 2.2.0
 ---
 
 # Building the Databanx fork of stalwart
 
-The build is **slow and expensive to redo** — get the feature set right the first time. A cold build in the local Docker builder takes ~13 min (18 cores); the LTO fat + codegen-units=1 link step alone is several minutes. A version bump touches every workspace crate, so even with the cache warm expect ~15 min (v0.16.23: 14m46s).
+The build is **slow and expensive to redo** — get the feature set right the first time. A cold build in the local Docker builder takes ~13 min (18 cores); the LTO fat + codegen-units=1 link step alone is several minutes. A version bump touches every workspace crate, so even with the cache warm expect ~15–17 min (v0.16.23: 14m46s; v0.16.26: 17m11s).
 
 ## Hosts
 
 - **Dev workstation** (Apple Silicon Mac, OrbStack) — **the build host**. Release binaries are produced in a local Linux ARM64 container (see "Docker build environment"). Native macOS builds are NOT release artifacts; macOS `cargo check -p <crate>` is fine for fast patch validation.
 - **`mx1` / `mx2` / `mx3`** — production peers only. **None of them has a toolchain.** Always copy the built binary in, never try to build there.
+  - **Since 2026-10-13 only `mx1` is active** — `mx2`/`mx3` are STOPPED (termination planned ≥ 2026-10-20). Deploy to `mx1` only; the multi-host loops below apply only if the cluster grows back. Check the `localmail-server-ops` skill for the current topology.
 
 > **History (2026-06-11):** mx1 used to be the build host (`~/stalwart-build`). The Oracle downsize to 2 vCPU / 8 GB wiped `~/stalwart-build` and `~/.cargo`/`~/.rustup`. The FDB client libs (7.4.6) are still installed on mx1, but do not rebuild the toolchain there — the build now lives in Docker on the workstation, which is faster and doesn't compete with production for CPU.
 
@@ -39,7 +40,7 @@ cargo build --release \
 
 (`JEMALLOC_SYS_WITH_LG_PAGE=16` must be in the environment — the builder image sets it; see below.)
 
-**Reference size**: the stripped aarch64 binary grows slowly with upstream (v0.16.8: ~63 MB; v0.16.20: 69.6 MB; v0.16.22: 70.1 MB; v0.16.23: 70.3 MB). Compare against the previous release's size in its tag message, not against a fixed number. A jump of several MB from one release to the next means someone re-added a backend — check the rustc invocation for `--cfg feature="rocks"` etc. The backend `strings` check below is the real test.
+**Reference size**: the stripped aarch64 binary grows slowly with upstream (v0.16.8: ~63 MB; v0.16.20: 69.6 MB; v0.16.22: 70.1 MB; v0.16.23: 70.3 MB; v0.16.26: 70.4 MB). Compare against the previous release's size in its tag message, not against a fixed number. A jump of several MB from one release to the next means someone re-added a backend — check the rustc invocation for `--cfg feature="rocks"` etc. The backend `strings` check below is the real test.
 
 **Do not add `rocks`, `sqlite`, `postgres`, `mysql`, `nats`, `azure`, `zenoh`, or `kafka`** unless you have first verified the production config actually references that backend. Each one drags in a heavy dependency that bloats the binary and lengthens the build with zero runtime benefit. If a future config change adds a backend, update the feature list *and* this table — don't preemptively pad it.
 
@@ -88,13 +89,14 @@ From the repo checkout (branch `update/<version>` with the fork patches applied)
 docker run --rm --name stalwart-build \
   -v /Users/eldon/code/databanx/localmail/stalwart:/src \
   -v stalwart-cargo-registry:/root/.cargo/registry \
+  -v stalwart-cargo-git:/root/.cargo/git \
   -v stalwart-target:/target \
   -e CARGO_TARGET_DIR=/target \
   stalwart-builder-arm64 \
   cargo build --release --no-default-features --features "foundationdb s3 redis enterprise"
 ```
 
-The named volumes (`stalwart-cargo-registry`, `stalwart-target`) keep the cargo cache off the slow macOS bind mount and survive OrbStack restarts. Build time: ~13 min cold, a few minutes warm. Do not `docker volume rm` them casually.
+The named volumes (`stalwart-cargo-registry`, `stalwart-cargo-git`, `stalwart-target`) keep the cargo cache off the slow macOS bind mount and survive OrbStack restarts. Build time: ~13 min cold, a few minutes warm. Do not `docker volume rm` them casually.
 
 Extract the binary and smoke-test it **inside the container** (it links `libfdb_c.so`, so it won't run on macOS):
 
@@ -141,14 +143,15 @@ done
 
 1. `git fetch upstream --tags` and compare with the fork's latest `vX.Y.Z-databanx-N` tag. Read the new `CHANGELOG.md` entries and check which ones touch our backends (FoundationDB, Redis, S3, Meilisearch, OIDC) — that is the case for bumping.
 2. `git checkout -b update/vX.Y.Z vX.Y.Z` (the upstream tag).
-3. Cherry-pick the fork commits from the previous release, oldest first. List them from the previous tag (`git log --reverse --no-merges --first-parent --oneline vPREV..vPREV-databanx-N`); do **not** use `upstream..origin/main`, which also lists every stale copy from older bumps. As of v0.16.23-databanx-1 they are:
+3. Cherry-pick the fork commits from the previous release, oldest first. List them from the previous tag (`git log --reverse --no-merges --first-parent --oneline vPREV..vPREV-databanx-N`); do **not** use `upstream..origin/main`, which also lists every stale copy from older bumps. As of v0.16.26-databanx-1 they are:
    - `perf: parallelize SearchSnippet/get blob fetches` (adds the `snippetConcurrency` setting)
-   - `fix: patch rust-s3 to unblock blob purge DELETEs on Cloudflare R2` (pin to `Databanx/rust-s3`; drop it once crates.io ships the durch/rust-s3#466 fix and upstream bumps)
-   - `ci: remove os workflows de release do upstream deste fork` + `ci: remove o ci-retry.yml do upstream`
+   - `ci: remove os workflows de release do upstream deste fork` + `ci: remove o ci-retry.yml do upstream` — conflicts whenever upstream touches `.github/` (v0.16.26: modify/delete on every workflow + `dependabot.yml`). Resolution: `git rm` the upstream workflows (only `test.yml` stays) and keep the fork's `dependabot.yml` (`git checkout --theirs`, cargo only).
    - `docs: track .claude skills; …` (this skill)
    - `fix: count OIDC password attempts towards fail2ban` (`crates/directory/src/backend/oidc/lookup.rs`)
+   - `fix: move SnippetConcurrency discriminant to 935` — the per-bump discriminant fix. Cherry-pick it right after the `perf:` commit (or squash the two) so `SnippetConcurrency` doesn't fall back to 934, which is upstream's `ServerId` since v0.16.24. Step 4 still applies: upstream may have taken 935 too.
+   - plus the docs-only commits made on `main` after the previous tag (skill updates), so the branch carries the current skill.
 
-   Use `git -c commit.gpgsign=false cherry-pick ...`. `fix: correct total count with collapseThreads` is retired (upstream fixed it in v0.16.12) — don't port it.
+   Use `git -c commit.gpgsign=false cherry-pick ...`. `fix: correct total count with collapseThreads` is retired (upstream fixed it in v0.16.12) — don't port it. The rust-s3 pin (`fix: patch rust-s3 to unblock blob purge DELETEs on Cloudflare R2`) is retired too: upstream v0.16.26 moved to rust-s3 0.38.0, which ships the durch/rust-s3#466 fix.
 4. **Validate the `Property` enum even if the cherry-pick applied cleanly.** The SearchSnippet patch adds `Property::SnippetConcurrency` with a hardcoded discriminant; when upstream adds variants in the same range, git auto-merges into **two variants with the same number** without any conflict marker (it only flags `const COUNT`, if anything):
 
    ```
@@ -160,9 +163,30 @@ done
    grep -n 'const COUNT' crates/registry/src/schema/properties_impl.rs
    ```
 
-   Expected: `len == max+1`, `min == 0`, `dup: []`, and the `Property` `const COUNT` equal to `len`. On a collision, move `SnippetConcurrency` to the first free number and fix the reverse-parse arm (`NNN => Some(Property::SnippetConcurrency)` in `properties_impl.rs`) and `const COUNT`. In `structs_impl.rs`, keep `snippet_concurrency` **last** in pickle/unpickle and adjust `Map::with_capacity`.
+   Expected: `len == max+1`, `min == 0`, `dup: []`, and the `Property` `const COUNT` equal to `len`. On a collision, move `SnippetConcurrency` to the first free number and fix the reverse-parse arm (`NNN => Some(Property::SnippetConcurrency)` in `properties_impl.rs`) and `const COUNT`. In `structs_impl.rs`, keep `snippet_concurrency` **last** in pickle/unpickle and adjust `Map::with_capacity` (upstream value + 1). It has collided on most bumps (v0.16.26: upstream `ServerId = 934` → moved to 935).
 5. Validate: `cargo check -p registry -p jmap -p directory` (native macOS is fine for this). The unused-import warnings in `common`/`jmap`/`services` come from feature flags upstream — not ours.
-6. Push the branch, build in Docker, verify backends, tag, open the PR to `main` (merge commit, like the previous `update/*` PRs).
+6. Push the branch, build in Docker, verify backends, tag.
+7. **Review gate — mandatory before opening the PR.** Launch a review agent (see "Review gate" below) and fix what it finds. Only then open the PR to `main` (merge commit, like the previous `update/*` PRs), with the review verdict in the PR body.
+8. **Review gate again before swapping production** if anything changed after the first review (merge of `origin/main` into the branch, conflict resolution, rebuilt binary). Do not touch `/opt/stalwart/bin/stalwart` on any host without an approved review of the exact tree and binary being deployed.
+
+## Review gate (required before the PR and before production)
+
+Decided 2026-10-15: every bump gets an **independent review agent** — the session that did the bump does not review its own work. Run it twice:
+
+- **Before `gh pr create`** — reviews the branch as built.
+- **Before the in-place swap** — confirms the tree being deployed is the reviewed one (re-review whatever changed since: merges from `origin/main`, conflict resolutions, a rebuild).
+
+Launch it with the `Agent` tool (`subagent_type: "pr-review-toolkit:code-reviewer"`, or `general-purpose` if that type is missing) and give it the concrete inputs, not a vague "review the PR":
+
+- **Fork diff vs upstream:** `git diff vX.Y.Z update/vX.Y.Z -- crates Cargo.toml Cargo.lock` — every hunk must belong to a known fork patch (list in step 3) or to a commit made in this bump; anything else is a mistake from a cherry-pick or conflict resolution.
+- **Commits made in this bump** (discriminant moves, conflict resolutions, retired patches), with the reason for each.
+- **`Property` enum:** rerun the validation script from step 4 and check `const COUNT`, the reverse-parse arm and `Map::with_capacity` (upstream value + 1), and that `snippet_concurrency` is still last in pickle/unpickle.
+- **Conflict resolutions:** for every file resolved with `--ours`/`--theirs`, confirm nothing upstream wanted was dropped (e.g. new upstream `[patch.crates-io]` entries, new dependencies in `Cargo.lock`).
+- **Retired / kept patches:** evidence that a retired patch is really covered upstream (released crate version, test or changelog entry), and that kept patches still apply to the code they patch (e.g. upstream changed the same function).
+- **Build provenance:** `git diff <tag> HEAD -- crates Cargo.toml Cargo.lock` must be empty (otherwise the binary is not the tagged tree), binary sha256 = tag message = what was copied to the host, backend `strings` check results.
+- **Changelog risk for our setup:** upstream changes that touch FoundationDB, Redis, S3/R2, Meilisearch, OIDC, the registry schema or the pickle format, and whether any need config or migration on deploy.
+
+The agent returns a verdict (**approve** / **changes needed**) with findings. Act on every blocking finding, rerun the gate if code changed, and record the verdict (date, what was reviewed, sha256 reviewed) in the PR body or a PR comment. A pending or failed review blocks both the PR and the deploy — "the diff is small" is not an exemption.
 
 ## Tag and release convention
 
@@ -172,7 +196,7 @@ Format: `vX.Y.Z-databanx-N` — annotated tag on top of the upstream `vX.Y.Z` ba
 
 - Examples: `v0.16.5-databanx-1`, `v0.16.8-databanx-1`.
 - Do **not** bump version strings in `Cargo.toml`. Crates stay pinned to the upstream version they branched from.
-- The tag points at the HEAD commit of `update/<version>` that's actually being deployed.
+- The tag points at the commit whose tree produced the deployed binary. Docs-only commits after the tag (skill updates, a merge of `origin/main` resolved in favour of the branch) are fine as long as `git diff <tag> HEAD -- crates Cargo.toml Cargo.lock` stays empty; any code change after the tag needs a rebuild and a new `-databanx-N` tag.
 - The annotated tag message should list the fork-specific commits (short hash + subject) and the binary sha256, so provenance is obvious from `git show <tag>` alone.
 - Do not push `update/<version>` directly to `main` — open a PR for review.
 
@@ -270,5 +294,6 @@ So for a fork fix: write the bug report (symptom, cause with file paths, suggest
 - Do not bump `version` fields in `Cargo.toml`. Use the `vX.Y.Z-databanx-N` git tag instead.
 - Do not skip `chown stalwart:stalwart` after dropping the new binary into `/opt/stalwart/bin/`.
 - Do not swap all three peers in parallel. One at a time, verify, then move on.
+- Do not open the PR or swap the production binary without an approved review from an independent review agent (see "Review gate").
 - Do not trust `journalctl` for server errors — Stalwart logs to `/opt/stalwart/logs/stalwart.log.YYYY-MM-DD`.
 - Do not open issues or PRs on `stalwartlabs/stalwart` from the harness — see "Reporting fork fixes upstream".

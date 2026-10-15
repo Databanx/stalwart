@@ -163,7 +163,28 @@ done
 
    Expected: `len == max+1`, `min == 0`, `dup: []`, and the `Property` `const COUNT` equal to `len`. On a collision, move `SnippetConcurrency` to the first free number and fix the reverse-parse arm (`NNN => Some(Property::SnippetConcurrency)` in `properties_impl.rs`) and `const COUNT`. In `structs_impl.rs`, keep `snippet_concurrency` **last** in pickle/unpickle and adjust `Map::with_capacity` (upstream value + 1). It has collided on most bumps (v0.16.26: upstream `ServerId = 934` → moved to 935).
 5. Validate: `cargo check -p registry -p jmap -p directory` (native macOS is fine for this). The unused-import warnings in `common`/`jmap`/`services` come from feature flags upstream — not ours.
-6. Push the branch, build in Docker, verify backends, tag, open the PR to `main` (merge commit, like the previous `update/*` PRs).
+6. Push the branch, build in Docker, verify backends, tag.
+7. **Review gate — mandatory before opening the PR.** Launch a review agent (see "Review gate" below) and fix what it finds. Only then open the PR to `main` (merge commit, like the previous `update/*` PRs), with the review verdict in the PR body.
+8. **Review gate again before swapping production** if anything changed after the first review (merge of `origin/main` into the branch, conflict resolution, rebuilt binary). Do not touch `/opt/stalwart/bin/stalwart` on any host without an approved review of the exact tree and binary being deployed.
+
+## Review gate (required before the PR and before production)
+
+Decided 2026-10-15: every bump gets an **independent review agent** — the session that did the bump does not review its own work. Run it twice:
+
+- **Before `gh pr create`** — reviews the branch as built.
+- **Before the in-place swap** — confirms the tree being deployed is the reviewed one (re-review whatever changed since: merges from `origin/main`, conflict resolutions, a rebuild).
+
+Launch it with the `Agent` tool (`subagent_type: "pr-review-toolkit:code-reviewer"`, or `general-purpose` if that type is missing) and give it the concrete inputs, not a vague "review the PR":
+
+- **Fork diff vs upstream:** `git diff vX.Y.Z update/vX.Y.Z -- crates Cargo.toml Cargo.lock` — every hunk must belong to a known fork patch (list in step 3) or to a commit made in this bump; anything else is a mistake from a cherry-pick or conflict resolution.
+- **Commits made in this bump** (discriminant moves, conflict resolutions, retired patches), with the reason for each.
+- **`Property` enum:** rerun the validation script from step 4 and check `const COUNT`, the reverse-parse arm and `Map::with_capacity` (upstream value + 1), and that `snippet_concurrency` is still last in pickle/unpickle.
+- **Conflict resolutions:** for every file resolved with `--ours`/`--theirs`, confirm nothing upstream wanted was dropped (e.g. new upstream `[patch.crates-io]` entries, new dependencies in `Cargo.lock`).
+- **Retired / kept patches:** evidence that a retired patch is really covered upstream (released crate version, test or changelog entry), and that kept patches still apply to the code they patch (e.g. upstream changed the same function).
+- **Build provenance:** `git diff <tag> HEAD -- crates Cargo.toml Cargo.lock` must be empty (otherwise the binary is not the tagged tree), binary sha256 = tag message = what was copied to the host, backend `strings` check results.
+- **Changelog risk for our setup:** upstream changes that touch FoundationDB, Redis, S3/R2, Meilisearch, OIDC, the registry schema or the pickle format, and whether any need config or migration on deploy.
+
+The agent returns a verdict (**approve** / **changes needed**) with findings. Act on every blocking finding, rerun the gate if code changed, and record the verdict (date, what was reviewed, sha256 reviewed) in the PR body or a PR comment. A pending or failed review blocks both the PR and the deploy — "the diff is small" is not an exemption.
 
 ## Tag and release convention
 
@@ -271,5 +292,6 @@ So for a fork fix: write the bug report (symptom, cause with file paths, suggest
 - Do not bump `version` fields in `Cargo.toml`. Use the `vX.Y.Z-databanx-N` git tag instead.
 - Do not skip `chown stalwart:stalwart` after dropping the new binary into `/opt/stalwart/bin/`.
 - Do not swap all three peers in parallel. One at a time, verify, then move on.
+- Do not open the PR or swap the production binary without an approved review from an independent review agent (see "Review gate").
 - Do not trust `journalctl` for server errors — Stalwart logs to `/opt/stalwart/logs/stalwart.log.YYYY-MM-DD`.
 - Do not open issues or PRs on `stalwartlabs/stalwart` from the harness — see "Reporting fork fixes upstream".

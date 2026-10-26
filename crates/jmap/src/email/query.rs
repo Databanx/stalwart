@@ -5,7 +5,7 @@
  */
 
 use crate::{api::query::QueryResponseBuilder, changes::state::JmapCacheState};
-use common::{MessageStoreCache, Server, auth::AccessToken};
+use common::{MessageStoreCache, MessagesCache, Server, auth::AccessToken};
 use email::cache::{MessageCacheFetch, email::MessageCacheAccess};
 use jmap_proto::{
     method::query::{Filter, QueryRequest, QueryResponse},
@@ -274,6 +274,19 @@ impl EmailQuery for Server {
         }
 
         // Parse sort criteria
+        // Keep mixed external sorts together: the search store preserves their
+        // tie-breaking order only when it delegates the full comparator list.
+        let local_sort = request.sort.as_ref().is_some_and(|sort| {
+            sort.iter().all(|comparator| {
+                matches!(
+                    comparator.property,
+                    EmailComparator::ReceivedAt
+                        | EmailComparator::HasKeyword(_)
+                        | EmailComparator::AllInThreadHaveKeyword(_)
+                        | EmailComparator::SomeInThreadHaveKeyword(_)
+                )
+            })
+        });
         let mut comparators = Vec::with_capacity(request.sort.as_ref().map_or(1, |s| s.len()));
         for comparator in request
             .sort
@@ -282,6 +295,9 @@ impl EmailQuery for Server {
             .unwrap_or_default()
         {
             comparators.push(match comparator.property {
+                EmailComparator::ReceivedAt if local_sort => {
+                    received_at_comparator(&cached_messages.emails, comparator.is_ascending)
+                }
                 EmailComparator::ReceivedAt => {
                     SearchComparator::field(EmailSearchField::ReceivedAt, comparator.is_ascending)
                 }
@@ -394,6 +410,22 @@ impl EmailQuery for Server {
 
         response.build()
     }
+}
+
+fn received_at_comparator(cache: &MessagesCache, ascending: bool) -> SearchComparator {
+    let mut messages = cache.items.iter().collect::<Vec<_>>();
+    messages.sort_unstable_by_key(|message| message.received_at);
+    let mut set = AHashMap::with_capacity(messages.len());
+    let mut previous = None;
+    let mut rank = 0;
+    for message in messages {
+        if previous.is_some_and(|timestamp| timestamp != message.received_at) {
+            rank += 1;
+        }
+        previous = Some(message.received_at);
+        set.insert(message.document_id, rank);
+    }
+    SearchComparator::SortedSet { set, ascending }
 }
 
 fn thread_keywords(cache: &MessageStoreCache, keyword: Keyword, match_all: bool) -> RoaringBitmap {

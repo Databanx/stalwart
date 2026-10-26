@@ -31,6 +31,306 @@ const MAX_THREADS: usize = 100;
 const MAX_MESSAGES: usize = 1000;
 const MAX_MESSAGES_PER_THREAD: usize = 100;
 
+#[tokio::test(flavor = "multi_thread")]
+async fn received_at_existing_query_contracts() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+    let mut test =
+        crate::utils::server::TestServerBuilder::new("received_at_existing_query_contracts")
+            .await
+            .with_http_listener(port)
+            .await
+            .with_object(registry::schema::structs::Jmap {
+                set_max_objects: 2000,
+                ..Default::default()
+            })
+            .await
+            .build()
+            .await;
+    let admin = test.create_admin_account("query-admin@example.com").await;
+    let account = admin
+        .create_user_account(
+            "jdoe@example.com",
+            "test-query-contracts",
+            "John Doe",
+            &[],
+            vec![
+                registry::schema::enums::Permission::UnlimitedRequests,
+                registry::schema::enums::Permission::UnlimitedUploads,
+            ],
+        )
+        .await;
+    test.insert_account(account);
+    self::test(&test).await;
+    test.shutdown();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn received_at_order_without_indexing() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+    let test = crate::utils::server::TestServerBuilder::new("received_at_order_without_indexing")
+        .await
+        .with_http_listener(port)
+        .await
+        .disable_services()
+        .build()
+        .await;
+    let account = test.create_admin_account("sort@example.com").await;
+    let client = account.jmap_client().await;
+    let mailbox = client
+        .mailbox_create("Sorting", None::<String>, jmap_client::mailbox::Role::None)
+        .await
+        .unwrap()
+        .take_id();
+    let http = reqwest::Client::builder()
+        .danger_accept_invalid_certs(true)
+        .build()
+        .unwrap();
+    let mut ids = Vec::new();
+
+    // Import order intentionally differs from receivedAt. No index worker runs.
+    for (i, received_at) in [1_700_000_100, 1_700_000_300, 1_700_000_200]
+        .into_iter()
+        .enumerate()
+    {
+        ids.push(client.email_import(
+            format!("From: sender@example.com\r\nTo: sort@example.com\r\nSubject: message {i}\r\nMessage-ID: <sort-{i}@example.com>\r\n\r\nBody").into_bytes(),
+            [&mailbox], None::<Vec<&str>>, Some(received_at),
+        ).await.unwrap().take_id());
+        // Warm the cache before the next delivery to exercise incremental updates.
+        test.server
+            .get_cached_messages(account.id().document_id())
+            .await
+            .unwrap();
+    }
+
+    for cold in [false, true] {
+        if cold {
+            test.server.inner.cache.messages.clear();
+        }
+        for collapse in [false, true] {
+            for ascending in [false, true] {
+                let expected = if ascending {
+                    vec![&ids[0], &ids[2], &ids[1]]
+                } else {
+                    vec![&ids[1], &ids[2], &ids[0]]
+                };
+                for (position, expected_id) in expected.into_iter().enumerate() {
+                    let result = query_ordering(
+                        &http,
+                        &account,
+                        serde_json::json!({
+                            "filter": {"inMailbox": mailbox, "notKeyword": "$seen"},
+                            "sort": [{"property": "receivedAt", "isAscending": ascending}],
+                            "collapseThreads": collapse, "position": position, "limit": 1,
+                            "calculateTotal": true
+                        }),
+                    )
+                    .await;
+                    assert_eq!(result["methodResponses"][0][0], "Email/query", "{result}");
+                    assert_eq!(result["methodResponses"][0][1]["total"], 3);
+                    assert_eq!(
+                        result["methodResponses"][0][1]["ids"],
+                        serde_json::json!([expected_id]),
+                        "cold={cold}, collapse={collapse}, ascending={ascending}, position={position}"
+                    );
+                }
+            }
+        }
+    }
+    let reply = client.email_import(
+        b"From: sender@example.com\r\nTo: sort@example.com\r\nSubject: Re: message 0\r\nMessage-ID: <sort-reply@example.com>\r\nReferences: <sort-0@example.com>\r\n\r\nReply".to_vec(),
+        [&mailbox], None::<Vec<&str>>, Some(1_700_000_400),
+    ).await.unwrap().take_id();
+    let flagged = client.email_import(
+        b"From: sender@example.com\r\nTo: sort@example.com\r\nSubject: flagged\r\nMessage-ID: <sort-flagged@example.com>\r\n\r\nFlagged".to_vec(),
+        [&mailbox], Some(vec!["$flagged"]), Some(1_700_000_300),
+    ).await.unwrap().take_id();
+    for cold in [false, true] {
+        if cold {
+            test.server.inner.cache.messages.clear();
+        }
+        let result = query_ordering(
+            &http,
+            &account,
+            serde_json::json!({
+                "filter": {"inMailbox": mailbox, "notKeyword": "$seen"},
+                "sort": [{"property": "receivedAt", "isAscending": false},
+                         {"property": "hasKeyword", "keyword": "$flagged", "isAscending": false}],
+                "collapseThreads": true, "calculateTotal": true
+            }),
+        )
+        .await;
+        assert_eq!(result["methodResponses"][0][1]["total"], 4, "{result}");
+        assert_eq!(
+            result["methodResponses"][0][1]["ids"],
+            serde_json::json!([reply, flagged, ids[1], ids[2]]),
+            "{result}"
+        );
+        let result = query_ordering(
+            &http,
+            &account,
+            serde_json::json!({
+                "filter": {"inMailbox": mailbox},
+                "sort": [{"property": "receivedAt", "isAscending": false}],
+                "collapseThreads": true, "anchor": flagged, "anchorOffset": 1, "limit": 1
+            }),
+        )
+        .await;
+        assert_eq!(
+            result["methodResponses"][0][1]["ids"],
+            serde_json::json!([ids[2]]),
+            "{result}"
+        );
+    }
+    test.shutdown();
+}
+
+async fn query_ordering(
+    http: &reqwest::Client,
+    account: &Account,
+    mut arguments: serde_json::Value,
+) -> serde_json::Value {
+    arguments["accountId"] = serde_json::json!(account.id_string());
+    http.post(format!(
+        "https://127.0.0.1:{}/jmap",
+        account.http_listener_port
+    ))
+    .basic_auth(account.name(), Some(account.secret()))
+    .json(&serde_json::json!({
+        "using": ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
+        "methodCalls": [["Email/query", arguments, "q"]]
+    }))
+    .send()
+    .await
+    .unwrap()
+    .json()
+    .await
+    .unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "populated mailbox timing; run explicitly before releasing cache changes"]
+async fn received_at_populated_cache_timing() {
+    use ::email::message::metadata::{MessageData, MessageMetadata};
+    use store::{
+        Serialize, ValueKey,
+        write::{AlignedBytes, Archive, Archiver},
+    };
+    use types::field::EmailField;
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+    let test = crate::utils::server::TestServerBuilder::new("received_at_populated_cache_timing")
+        .await
+        .with_http_listener(port)
+        .await
+        .disable_services()
+        .build()
+        .await;
+    let account = test.create_admin_account("timing@example.com").await;
+    let client = account.jmap_client().await;
+    let mailbox = client
+        .mailbox_create("Timing", None::<String>, jmap_client::mailbox::Role::None)
+        .await
+        .unwrap()
+        .take_id();
+    let mut header_seed = 12345u32;
+    let headers = (0..8192)
+        .map(|_| {
+            header_seed = header_seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            char::from(b'a' + ((header_seed >> 24) % 26) as u8)
+        })
+        .collect::<String>();
+    let seed = client.email_import(
+        format!("From: sender@example.com\r\nTo: timing@example.com\r\nSubject: timing\r\nX-Timing: {}\r\n\r\nBody", headers).into_bytes(),
+        [&mailbox], None::<Vec<&str>>, Some(1_700_000_000),
+    ).await.unwrap().take_id();
+    let account_id = account.id().document_id();
+    let seed_id = Id::from_str(&seed).unwrap().document_id();
+    let data = test
+        .server
+        .store()
+        .get_value::<Archive<AlignedBytes>>(ValueKey::archive(
+            account_id,
+            Collection::Email,
+            seed_id,
+        ))
+        .await
+        .unwrap()
+        .unwrap()
+        .deserialize::<MessageData>()
+        .unwrap();
+    let metadata = test
+        .server
+        .store()
+        .get_value::<Archive<AlignedBytes>>(ValueKey::property(
+            account_id,
+            Collection::Email,
+            seed_id,
+            EmailField::Metadata,
+        ))
+        .await
+        .unwrap()
+        .unwrap();
+    let mut batch = BatchBuilder::new();
+    for id in 10_000..30_000u32 {
+        let mut message = metadata.deserialize::<MessageMetadata>().unwrap();
+        message.rcvd_attach = 1_700_000_000 + ((id * 7919) % 20_000) as u64;
+        batch
+            .with_account_id(account_id)
+            .with_collection(Collection::Email)
+            .with_document(id)
+            .custom(
+                ObjectIndexBuilder::<(), _>::new().with_changes(MessageData {
+                    mailboxes: data.mailboxes.clone(),
+                    keywords: Box::new([]),
+                    thread_id: id,
+                    size: data.size,
+                }),
+            )
+            .unwrap()
+            .set(
+                EmailField::Metadata,
+                Archiver::new(message).serialize().unwrap(),
+            );
+        if batch.is_large_batch() {
+            test.server.store().write(batch.build_all()).await.unwrap();
+            batch = BatchBuilder::new();
+        }
+    }
+    if !batch.is_empty() {
+        test.server.store().write(batch.build_all()).await.unwrap();
+    }
+    test.server.inner.cache.messages.clear();
+    let http = reqwest::Client::builder()
+        .danger_accept_invalid_certs(true)
+        .build()
+        .unwrap();
+    for iteration in 0..4 {
+        let started = Instant::now();
+        let result = query_ordering(
+            &http,
+            &account,
+            serde_json::json!({
+                "sort": [{"property":"receivedAt", "isAscending":false}],
+                "filter": {"inMailbox": mailbox}, "limit":50, "calculateTotal":true
+            }),
+        )
+        .await;
+        assert_eq!(result["methodResponses"][0][1]["total"], 20_001, "{result}");
+        println!(
+            "receivedAt: 20001 messages, 8KiB headers, iteration={iteration}, elapsed={:?}",
+            started.elapsed()
+        );
+    }
+    test.shutdown();
+}
+
 pub async fn test(test: &TestServer) {
     println!("Running Email Query tests...");
     let server = test.server.clone();

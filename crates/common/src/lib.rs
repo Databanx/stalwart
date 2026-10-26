@@ -236,6 +236,7 @@ pub struct MessagesCache {
 #[derive(Debug, Clone)]
 pub struct MessageCache {
     pub document_id: u32,
+    pub received_at: u64,
     pub mailboxes: TinyVec<[MessageUidCache; 2]>,
     pub keywords: u128,
     pub thread_id: u32,

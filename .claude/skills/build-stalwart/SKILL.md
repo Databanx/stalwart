@@ -93,8 +93,10 @@ docker run --rm --name stalwart-build \
   -v stalwart-target:/target \
   -e CARGO_TARGET_DIR=/target \
   stalwart-builder-arm64 \
-  cargo build --release --no-default-features --features "foundationdb s3 redis enterprise"
+  bash -xc 'cargo build --release --no-default-features --features "foundationdb s3 redis enterprise"'
 ```
+
+The `bash -x` wrapper echoes the cargo command into the build log, so the review gate can confirm the feature set from the log instead of inferring it from the compiled crates (the v0.16.27 review had to infer it).
 
 The named volumes (`stalwart-cargo-registry`, `stalwart-cargo-git`, `stalwart-target`) keep the cargo cache off the slow macOS bind mount and survive OrbStack restarts. Build time: ~13 min cold, a few minutes warm. Do not `docker volume rm` them casually.
 
@@ -141,7 +143,7 @@ done
 
 ## Update flow (new upstream version)
 
-This flow covers 0.16.x point releases only. **v1.0.0 (2026-10-26) is not a bump**: new database layout, no in-place upgrade, data copied to a new store with `stalwart-migrate` (which only reads from **0.16.27**), registry schema renamed and renumbered (`Property` goes to 1011), fork patches to be rewritten. Plan it as a migration project, not with the steps below.
+This flow covers 0.16.x point releases only. **v1.0.0 (2026-10-26) is not a bump**: new database layout, no in-place upgrade, data copied to a new store with `stalwart-migrate`, which does not upgrade earlier 0.16 releases: they "must reach 0.16.27 first" (https://stalw.art/docs/migration/upgrade-0-16/, read on 2026-10-26), registry schema renamed and renumbered (`Property` goes to 1011), fork patches to be rewritten. Plan it as a migration project, not with the steps below.
 
 1. `git fetch upstream --tags` and compare with the fork's latest `vX.Y.Z-databanx-N` tag. Read the new `CHANGELOG.md` entries and check which ones touch our backends (FoundationDB, Redis, S3, Meilisearch, OIDC) — that is the case for bumping.
 2. `git checkout -b update/vX.Y.Z vX.Y.Z` (the upstream tag).

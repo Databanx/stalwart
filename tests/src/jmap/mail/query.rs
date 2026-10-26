@@ -186,6 +186,59 @@ async fn received_at_order_without_indexing() {
             "{result}"
         );
     }
+    // Sorting must preserve shared-mailbox ACLs even though the cache covers the whole account.
+    let viewer = account
+        .create_user_account(
+            "viewer@example.com",
+            "test-sort-viewer",
+            "Viewer",
+            &[],
+            vec![],
+        )
+        .await;
+    let private_mailbox = client
+        .mailbox_create("Private", None::<String>, jmap_client::mailbox::Role::None)
+        .await
+        .unwrap()
+        .take_id();
+    let private_id = client.email_import(
+        b"From: sender@example.com\r\nTo: sort@example.com\r\nSubject: private newest\r\n\r\nPrivate".to_vec(),
+        [&private_mailbox], None::<Vec<&str>>, Some(1_700_000_500),
+    ).await.unwrap().take_id();
+    let shared_query = serde_json::json!({
+        "accountId": account.id_string(),
+        "sort": [{"property": "receivedAt", "isAscending": false}],
+        "collapseThreads": false, "calculateTotal": true
+    });
+    let owned = query_ordering(&http, &account, shared_query.clone()).await;
+    assert_eq!(owned["methodResponses"][0][1]["total"], 6, "{owned}");
+    assert_eq!(
+        owned["methodResponses"][0][1]["ids"][0], private_id,
+        "{owned}"
+    );
+    let denied = query_ordering(&http, &viewer, shared_query.clone()).await;
+    assert_eq!(denied["methodResponses"][0][0], "error", "{denied}");
+    assert_eq!(
+        denied["methodResponses"][0][1]["type"], "forbidden",
+        "{denied}"
+    );
+    client
+        .mailbox_update_acl(
+            &mailbox,
+            viewer.id_string(),
+            [jmap_client::principal::ACL::ReadItems],
+        )
+        .await
+        .unwrap();
+    let shared = query_ordering(&http, &viewer, shared_query).await;
+    assert_eq!(shared["methodResponses"][0][0], "Email/query", "{shared}");
+    assert_eq!(shared["methodResponses"][0][1]["total"], 5, "{shared}");
+    let visible = shared["methodResponses"][0][1]["ids"].as_array().unwrap();
+    assert_eq!(visible.first().unwrap(), &serde_json::json!(reply));
+    assert!(
+        !visible.contains(&serde_json::json!(private_id)),
+        "{shared}"
+    );
     test.shutdown();
 }
 
@@ -194,7 +247,9 @@ async fn query_ordering(
     account: &Account,
     mut arguments: serde_json::Value,
 ) -> serde_json::Value {
-    arguments["accountId"] = serde_json::json!(account.id_string());
+    if arguments.get("accountId").is_none() {
+        arguments["accountId"] = serde_json::json!(account.id_string());
+    }
     http.post(format!(
         "https://127.0.0.1:{}/jmap",
         account.http_listener_port

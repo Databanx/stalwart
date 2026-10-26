@@ -143,7 +143,7 @@ done
 
 ## Update flow (new upstream version)
 
-This flow covers 0.16.x point releases only. **v1.0.0 (2026-10-26) is not a bump**: new database layout, no in-place upgrade, data copied to a new store with `stalwart-migrate`, which does not upgrade earlier 0.16 releases: they "must reach 0.16.27 first" (https://stalw.art/docs/migration/upgrade-0-16/, read on 2026-10-26), registry schema renamed and renumbered (`Property` goes to 1011), fork patches to be rewritten. Plan it as a migration project, not with the steps below.
+This flow covers 0.16.x point releases only. **v1.0.0 (2026-10-26) is not a bump**: new database layout, no in-place upgrade, data copied to a new store with `stalwart-migrate`, which reads only from 0.16.27: "The source runs Stalwart 0.16.27. Earlier 0.16 releases are upgraded to 0.16.27 first." (https://stalw.art/docs/migration/upgrade-0-16/, read on 2026-10-26), registry schema renamed and renumbered (`Property` goes to 1011), fork patches to be rewritten. Plan it as a migration project, not with the steps below.
 
 1. `git fetch upstream --tags` and compare with the fork's latest `vX.Y.Z-databanx-N` tag. Read the new `CHANGELOG.md` entries and check which ones touch our backends (FoundationDB, Redis, S3, Meilisearch, OIDC) — that is the case for bumping.
 2. `git checkout -b update/vX.Y.Z vX.Y.Z` (the upstream tag).

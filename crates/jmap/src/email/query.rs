@@ -287,6 +287,11 @@ impl EmailQuery for Server {
                 )
             })
         });
+        if local_sort && filters.is_empty() {
+            filters.push(SearchFilter::is_in_set(
+                cached_messages.email_document_ids(),
+            ));
+        }
         let mut comparators = Vec::with_capacity(request.sort.as_ref().map_or(1, |s| s.len()));
         for comparator in request
             .sort

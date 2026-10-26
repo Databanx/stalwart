@@ -4,7 +4,9 @@
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
 
-use crate::message::metadata::{ArchivedMessageData, MessageData};
+use crate::message::metadata::{
+    ArchivedMessageData, MESSAGE_RECEIVED_MASK, MessageData, MessageMetadata,
+};
 use common::{
     MessageCache, MessageStoreCache, MessageUidCache, MessagesCache, Server, auth::AccessToken,
     sharing::EffectiveAcl,
@@ -15,6 +17,7 @@ use trc::AddContext;
 use types::{
     acl::Acl,
     collection::Collection,
+    field::EmailField,
     keyword::{Keyword, OTHER},
 };
 use utils::map::bitmap::Bitmap;
@@ -53,10 +56,32 @@ pub(crate) async fn update_email_cache(
                 .await
                 .caused_by(trc::location!())?
         {
+            let received_at = if let Some(previous) = store_cache.email_by_id(document_id) {
+                previous.received_at
+            } else {
+                server
+                    .store()
+                    .get_value::<Archive<AlignedBytes>>(ValueKey::property(
+                        account_id,
+                        Collection::Email,
+                        *document_id,
+                        EmailField::Metadata,
+                    ))
+                    .await
+                    .caused_by(trc::location!())?
+                    .map(|metadata| {
+                        metadata.unarchive::<MessageMetadata>().map(|metadata| {
+                            metadata.rcvd_attach.to_native() & MESSAGE_RECEIVED_MASK
+                        })
+                    })
+                    .transpose()?
+                    .unwrap_or_default()
+            };
             insert_item(
                 &mut new_cache,
                 *document_id,
                 archive.to_unarchived::<MessageData>()?,
+                received_at,
             );
         }
     }
@@ -93,8 +118,29 @@ pub(crate) async fn full_email_cache_build(
                     &mut cache,
                     document_id,
                     archive.to_unarchived::<MessageData>()?,
+                    0,
                 );
                 Ok(true)
+            },
+        )
+        .await
+        .caused_by(trc::location!())?;
+
+    // receivedAt is stored at delivery, independently of asynchronous FTS indexing.
+    server
+        .all_archives(
+            account_id,
+            Collection::Email,
+            EmailField::Metadata.into(),
+            |document_id, archive| {
+                if let Some(idx) = cache.index.get(&document_id) {
+                    cache.items[*idx as usize].received_at = archive
+                        .unarchive::<MessageMetadata>()?
+                        .rcvd_attach
+                        .to_native()
+                        & MESSAGE_RECEIVED_MASK;
+                }
+                Ok(())
             },
         )
         .await
@@ -107,6 +153,7 @@ fn insert_item(
     cache: &mut MessagesCacheBuilder,
     document_id: u32,
     archive: Archive<&ArchivedMessageData>,
+    received_at: u64,
 ) {
     let message = archive.inner;
     let mut item = MessageCache {
@@ -122,6 +169,7 @@ fn insert_item(
         thread_id: message.thread_id.to_native(),
         change_id: archive.version.change_id().unwrap_or_default(),
         document_id,
+        received_at,
         size: message.size.to_native(),
     };
     for keyword in message.keywords.iter() {

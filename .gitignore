@@ -7,3 +7,6 @@ run.sh
 !.gitattributes
 !.github
 !.cargo
+CLAUDE.md
+!.claude
+.claude/settings.local.json

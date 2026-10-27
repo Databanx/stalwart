@@ -267,8 +267,10 @@ impl EmailSearchSnippet for Server {
                 // Second pass: download the blobs with bounded concurrency. `buffered`
                 // yields results in request order, so the response order (and the
                 // order of `notFound`) is the same as with sequential downloads, and
-                // at most `concurrency` blobs are held in memory, so the bytes in
-                // flight stay under SNIPPET_PARALLEL_MAX_BYTES.
+                // at most `concurrency` blobs are in flight (plus the one being
+                // processed), so the bytes in flight stay under
+                // SNIPPET_PARALLEL_MAX_BYTES unless a single message is larger, in
+                // which case it downloads alone, as upstream does.
                 let largest = entries
                     .iter()
                     .filter_map(|entry| match entry {

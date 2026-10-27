@@ -6,13 +6,13 @@ version: 2.2.0
 
 # Building the Databanx fork of stalwart
 
-The build is **slow and expensive to redo** — get the feature set right the first time. A cold build in the local Docker builder takes ~13 min (18 cores); the LTO fat + codegen-units=1 link step alone is several minutes. A version bump touches every workspace crate, so even with the cache warm expect ~15–17 min (v0.16.23: 14m46s; v0.16.26: 17m11s).
+The build is **slow and expensive to redo** — get the feature set right the first time. A cold build in the local Docker builder takes ~13 min (18 cores); the LTO fat + codegen-units=1 link step alone is several minutes. A version bump touches every workspace crate, so even with the cache warm expect ~15–17 min (v0.16.23: 14m46s; v0.16.26: 17m11s; v0.16.27: 17m39s).
 
 ## Hosts
 
 - **Dev workstation** (Apple Silicon Mac, OrbStack) — **the build host**. Release binaries are produced in a local Linux ARM64 container (see "Docker build environment"). Native macOS builds are NOT release artifacts; macOS `cargo check -p <crate>` is fine for fast patch validation.
 - **`mx1` / `mx2` / `mx3`** — production peers only. **None of them has a toolchain.** Always copy the built binary in, never try to build there.
-  - **Since 2026-10-13 only `mx1` is active** — `mx2`/`mx3` are STOPPED (termination planned ≥ 2026-10-20). Deploy to `mx1` only; the multi-host loops below apply only if the cluster grows back. Check the `localmail-server-ops` skill for the current topology.
+  - **Since 2026-10-13 only `mx1` is active** — `mx2`/`mx3` were TERMINATED on 2026-10-23. Deploy to `mx1` only; the multi-host loops below apply only if the cluster grows back. Check the `localmail-server-ops` skill for the current topology.
 
 > **History (2026-06-11):** mx1 used to be the build host (`~/stalwart-build`). The Oracle downsize to 2 vCPU / 8 GB wiped `~/stalwart-build` and `~/.cargo`/`~/.rustup`. The FDB client libs (7.4.6) are still installed on mx1, but do not rebuild the toolchain there — the build now lives in Docker on the workstation, which is faster and doesn't compete with production for CPU.
 
@@ -40,7 +40,7 @@ cargo build --release \
 
 (`JEMALLOC_SYS_WITH_LG_PAGE=16` must be in the environment — the builder image sets it; see below.)
 
-**Reference size**: the stripped aarch64 binary grows slowly with upstream (v0.16.8: ~63 MB; v0.16.20: 69.6 MB; v0.16.22: 70.1 MB; v0.16.23: 70.3 MB; v0.16.26: 70.4 MB). Compare against the previous release's size in its tag message, not against a fixed number. A jump of several MB from one release to the next means someone re-added a backend — check the rustc invocation for `--cfg feature="rocks"` etc. The backend `strings` check below is the real test.
+**Reference size**: the stripped aarch64 binary grows slowly with upstream (v0.16.8: ~63 MB; v0.16.20: 69.6 MB; v0.16.22: 70.1 MB; v0.16.23: 70.3 MB; v0.16.26: 70.4 MB; v0.16.27: 70.6 MB). Compare against the previous release's size in its tag message, not against a fixed number. A jump of several MB from one release to the next means someone re-added a backend — check the rustc invocation for `--cfg feature="rocks"` etc. The backend `strings` check below is the real test.
 
 **Do not add `rocks`, `sqlite`, `postgres`, `mysql`, `nats`, `azure`, `zenoh`, or `kafka`** unless you have first verified the production config actually references that backend. Each one drags in a heavy dependency that bloats the binary and lengthens the build with zero runtime benefit. If a future config change adds a backend, update the feature list *and* this table — don't preemptively pad it.
 
@@ -93,8 +93,10 @@ docker run --rm --name stalwart-build \
   -v stalwart-target:/target \
   -e CARGO_TARGET_DIR=/target \
   stalwart-builder-arm64 \
-  cargo build --release --no-default-features --features "foundationdb s3 redis enterprise"
+  bash -xc 'cargo build --release --no-default-features --features "foundationdb s3 redis enterprise"'
 ```
+
+The `bash -x` wrapper echoes the cargo command into the build log, so the review gate can confirm the feature set from the log instead of inferring it from the compiled crates (the v0.16.27 review had to infer it).
 
 The named volumes (`stalwart-cargo-registry`, `stalwart-cargo-git`, `stalwart-target`) keep the cargo cache off the slow macOS bind mount and survive OrbStack restarts. Build time: ~13 min cold, a few minutes warm. Do not `docker volume rm` them casually.
 
@@ -141,15 +143,18 @@ done
 
 ## Update flow (new upstream version)
 
+This flow covers 0.16.x point releases only. **v1.0.0 (2026-10-26) is not a bump**: new database layout, no in-place upgrade, data copied to a new store with `stalwart-migrate`, which reads only from 0.16.27: "The source runs Stalwart 0.16.27. Earlier 0.16 releases are upgraded to 0.16.27 first." (https://stalw.art/docs/migration/upgrade-0-16/, read on 2026-10-26), registry schema renamed and renumbered (`Property` goes to 1011), fork patches to be rewritten. Plan it as a migration project, not with the steps below.
+
 1. `git fetch upstream --tags` and compare with the fork's latest `vX.Y.Z-databanx-N` tag. Read the new `CHANGELOG.md` entries and check which ones touch our backends (FoundationDB, Redis, S3, Meilisearch, OIDC) — that is the case for bumping.
 2. `git checkout -b update/vX.Y.Z vX.Y.Z` (the upstream tag).
-3. Cherry-pick the fork commits from the previous release, oldest first. List them from the previous tag (`git log --reverse --no-merges --first-parent --oneline vPREV..vPREV-databanx-N`); do **not** use `upstream..origin/main`, which also lists every stale copy from older bumps. As of v0.16.26-databanx-1 they are:
+3. Cherry-pick the fork commits from the previous release, oldest first. List them in two parts: the bump branch itself (`git log --reverse --no-merges --oneline vPREV..vPREV-databanx-1`), then whatever landed on `main` after it (`git log --reverse --no-merges --ancestry-path --oneline vPREV-databanx-1..origin/main`). Do **not** use `upstream..origin/main`, which also lists every stale copy from older bumps, and do not use `--first-parent` from a later `-databanx-N` tag: when that release was cut from a branch off `main` (v0.16.26-databanx-2), first-parent walks `main`'s own history and lists stale copies too. As of v0.16.27-databanx-1 they are:
    - `perf: parallelize SearchSnippet/get blob fetches` (adds the `snippetConcurrency` setting)
    - `ci: remove os workflows de release do upstream deste fork` + `ci: remove o ci-retry.yml do upstream` — conflicts whenever upstream touches `.github/` (v0.16.26: modify/delete on every workflow + `dependabot.yml`). Resolution: `git rm` the upstream workflows (only `test.yml` stays) and keep the fork's `dependabot.yml` (`git checkout --theirs`, cargo only).
    - `docs: track .claude skills; …` (this skill)
    - `fix: count OIDC password attempts towards fail2ban` (`crates/directory/src/backend/oidc/lookup.rs`)
    - `fix: move SnippetConcurrency discriminant to 935` — the per-bump discriminant fix. Cherry-pick it right after the `perf:` commit (or squash the two) so `SnippetConcurrency` doesn't fall back to 934, which is upstream's `ServerId` since v0.16.24. Step 4 still applies: upstream may have taken 935 too.
-   - plus the docs-only commits made on `main` after the previous tag (skill updates), so the branch carries the current skill.
+   - `fix: sort receivedAt from delivery metadata before indexing` + `fix: preserve unfiltered and shared date queries without indexing` (since v0.16.26-databanx-2; `crates/email/src/cache/email.rs`, `crates/jmap/src/email/query.rs`, `crates/common/src/lib.rs`, tests in `tests/src/jmap/mail/query.rs`)
+   - plus the docs-only commits made on `main` after the previous tag (skill updates, `docs/databanx/`), so the branch carries the current skill.
 
    Use `git -c commit.gpgsign=false cherry-pick ...`. `fix: correct total count with collapseThreads` is retired (upstream fixed it in v0.16.12) — don't port it. The rust-s3 pin (`fix: patch rust-s3 to unblock blob purge DELETEs on Cloudflare R2`) is retired too: upstream v0.16.26 moved to rust-s3 0.38.0, which ships the durch/rust-s3#466 fix.
 4. **Validate the `Property` enum even if the cherry-pick applied cleanly.** The SearchSnippet patch adds `Property::SnippetConcurrency` with a hardcoded discriminant; when upstream adds variants in the same range, git auto-merges into **two variants with the same number** without any conflict marker (it only flags `const COUNT`, if anything):

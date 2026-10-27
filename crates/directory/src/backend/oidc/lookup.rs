@@ -39,10 +39,8 @@ const NON_ACCESS_MARKERS: [(&str, &str); 12] = [
 ];
 
 impl OpenIdDirectory {
-    pub async fn authenticate(&self, _credentials: &Credentials) -> trc::Result<Account> {
-        Err(AuthEvent::Error
-            .into_err()
-            .reason("Unsupported credentials type for OIDC backend"))
+    pub async fn authenticate(&self, credentials: &Credentials) -> trc::Result<Account> {
+        Err(unsupported_credentials(credentials))
     }
 
     pub fn accepts_issuer(&self, issuer: &str) -> bool {
@@ -520,6 +518,53 @@ fn extract_string_list(value: &Value) -> Option<Vec<String>> {
 
 fn is_claim_missing(claims: &Value, claim: Option<&str>) -> bool {
     claim.is_some_and(|claim| claims.get(claim).is_none_or(Value::is_null))
+}
+
+// Password logins can never succeed against an OIDC directory. Report them as failed
+// authentications (with the account name) so they count towards the auth fail2ban
+// (Server::auth_failure only counts AuthEvent::Failed / IpUnauthorized). Other
+// credential types keep the generic error.
+fn unsupported_credentials(credentials: &Credentials) -> trc::Error {
+    match credentials {
+        Credentials::Basic { username, .. } => AuthEvent::Failed
+            .into_err()
+            .ctx(trc::Key::AccountName, username.clone())
+            .reason("Unsupported credentials type for OIDC backend"),
+        Credentials::Bearer { .. } => AuthEvent::Error
+            .into_err()
+            .reason("Unsupported credentials type for OIDC backend"),
+    }
+}
+
+#[cfg(test)]
+mod basic_credentials_tests {
+    use super::*;
+
+    #[test]
+    fn basic_credentials_count_as_failed_auth() {
+        let err = unsupported_credentials(&Credentials::Basic {
+            username: "user@example.org".into(),
+            secret: "wrong".into(),
+            mfa_token: None,
+        });
+        assert!(matches!(
+            err.as_ref(),
+            trc::EventType::Auth(AuthEvent::Failed)
+        ));
+        assert!(err.value(trc::Key::AccountName).is_some());
+    }
+
+    #[test]
+    fn bearer_credentials_stay_generic_error() {
+        let err = unsupported_credentials(&Credentials::Bearer {
+            username: None,
+            token: "t".into(),
+        });
+        assert!(matches!(
+            err.as_ref(),
+            trc::EventType::Auth(AuthEvent::Error)
+        ));
+    }
 }
 
 #[cfg(all(test, stalwart_tests))]

@@ -48,10 +48,12 @@ use utils::cheeky_hash::{CheekyHash, CheekyHashSet};
 /// latency, so fetching the blobs one by one makes large result pages slow.
 const SNIPPET_BLOB_CONCURRENCY: usize = 8;
 
-/// Above this many message bytes in a batch, the blobs are downloaded one by one,
-/// as upstream does. Each download reserves read memory for the message (twice its
-/// size with LZ4), so eight large messages in flight could exceed the memory budget
-/// and fail the request (and concurrent reads) with a retry-later error.
+/// Upper bound for the message bytes in flight at once. Each download reserves read
+/// memory for the message (twice its size with LZ4), so eight large messages in
+/// flight could exceed the memory budget and fail the request (and concurrent
+/// reads) with a retry-later error. The concurrency of a batch is this bound
+/// divided by its largest message, between 1 (sequential, as upstream) and
+/// SNIPPET_BLOB_CONCURRENCY.
 const SNIPPET_PARALLEL_MAX_BYTES: u64 = 16 * 1024 * 1024;
 
 /// A requested id after the metadata pass, in request order.
@@ -265,20 +267,20 @@ impl EmailSearchSnippet for Server {
                 // Second pass: download the blobs with bounded concurrency. `buffered`
                 // yields results in request order, so the response order (and the
                 // order of `notFound`) is the same as with sequential downloads, and
-                // at most SNIPPET_BLOB_CONCURRENCY blobs are held in memory. Batches
-                // with large messages fall back to sequential downloads.
-                let fetch_bytes: u64 = entries
+                // at most `concurrency` blobs are held in memory, so the bytes in
+                // flight stay under SNIPPET_PARALLEL_MAX_BYTES.
+                let largest = entries
                     .iter()
-                    .map(|entry| match entry {
-                        SnippetEntry::Fetch { size, .. } => *size,
-                        _ => 0,
+                    .filter_map(|entry| match entry {
+                        SnippetEntry::Fetch { size, .. } => Some(*size),
+                        _ => None,
                     })
-                    .sum();
-                let concurrency = if fetch_bytes <= SNIPPET_PARALLEL_MAX_BYTES {
-                    SNIPPET_BLOB_CONCURRENCY
-                } else {
-                    1
-                };
+                    .max()
+                    .unwrap_or(0)
+                    .max(1);
+                let concurrency = usize::try_from(SNIPPET_PARALLEL_MAX_BYTES / largest)
+                    .unwrap_or(SNIPPET_BLOB_CONCURRENCY)
+                    .clamp(1, SNIPPET_BLOB_CONCURRENCY);
                 let mut downloads = futures_util::stream::iter(entries)
                     .map(|entry| async move {
                         match entry {

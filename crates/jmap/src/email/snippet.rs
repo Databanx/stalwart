@@ -7,7 +7,10 @@
 use common::{
     Server,
     auth::AccessToken,
-    storage::batch::{DocumentBatch, Lookup, MAX_BATCH_BYTES, MAX_BATCH_DOCUMENTS},
+    storage::{
+        batch::{DocumentBatch, Lookup, MAX_BATCH_BYTES, MAX_BATCH_DOCUMENTS},
+        blob::FetchedBlob,
+    },
 };
 use email::{
     cache::{
@@ -20,6 +23,7 @@ use email::{
         metadata::{PartKind, PartSource},
     },
 };
+use futures_util::StreamExt;
 use jmap_proto::{
     method::{
         query::Filter,
@@ -35,8 +39,35 @@ use store::{
     search::{MAX_PLANNED_TOKENS, MAX_QUERY_LEAVES, MAX_QUERY_PLANNED_TOKENS},
 };
 use trc::AddContext;
-use types::{acl::Acl, collection::Collection};
+use types::{acl::Acl, blob_hash::BlobHash, collection::Collection, id::Id};
 use utils::cheeky_hash::{CheekyHash, CheekyHashSet};
+
+/// Maximum number of blobs downloaded concurrently by `SearchSnippet/get`.
+///
+/// The blob store can be a remote object store (S3, R2) with a high per-request
+/// latency, so fetching the blobs one by one makes large result pages slow.
+const SNIPPET_BLOB_CONCURRENCY: usize = 8;
+
+/// A requested id after the metadata pass, in request order.
+enum SnippetEntry {
+    Done(SearchSnippet),
+    NotFound(MaybeInvalid<Id>),
+    Fetch {
+        snippet: SearchSnippet,
+        blob_hash: BlobHash,
+        size: u64,
+    },
+}
+
+enum SnippetDownload {
+    Done(SearchSnippet),
+    NotFound(MaybeInvalid<Id>),
+    Fetched {
+        snippet: SearchSnippet,
+        blob_hash: BlobHash,
+        blob: trc::Result<Option<FetchedBlob>>,
+    },
+}
 
 pub trait EmailSearchSnippet: Sync + Send {
     fn email_search_snippet(
@@ -169,12 +200,14 @@ impl EmailSearchSnippet for Server {
                     .await
                     .caused_by(trc::location!())?;
 
+                // First pass: classify every requested id, in request order.
+                let mut entries = Vec::with_capacity(chunk.len());
                 for email_id in chunk {
                     let email_id = match email_id {
                         MaybeInvalid::Value(email_id) => *email_id,
                         invalid => {
                             if batch.is_first_round() {
-                                not_found.push(invalid.clone());
+                                entries.push(SnippetEntry::NotFound(invalid.clone()));
                             }
                             continue;
                         }
@@ -190,39 +223,83 @@ impl EmailSearchSnippet for Server {
                         .is_some_and(|message| access.allows(message))
                     {
                         if batch.is_first_round() {
-                            not_found.push(MaybeInvalid::Value(email_id));
+                            entries.push(SnippetEntry::NotFound(MaybeInvalid::Value(email_id)));
                         }
                         continue;
                     } else if terms.is_empty() {
-                        response.list.push(snippet);
+                        entries.push(SnippetEntry::Done(snippet));
                         continue;
                     }
                     let structure = match batch.lookup(document_id) {
                         Lookup::Found(structure) => structure,
                         Lookup::Missing => {
-                            not_found.push(MaybeInvalid::Value(email_id));
+                            entries.push(SnippetEntry::NotFound(MaybeInvalid::Value(email_id)));
                             continue;
                         }
                         Lookup::Skip => continue,
                     };
                     let metadata = structure.unarchive().caused_by(trc::location!())?;
-                    let root = metadata.root();
 
                     // Add subject snippet
-                    if let Some(subject) = root
-                        .envelope()
-                        .subject()
-                        .and_then(|subject| generate_snippet(subject, &terms, language, is_exact))
+                    if let Some(subject) =
+                        metadata.root().envelope().subject().and_then(|subject| {
+                            generate_snippet(subject, &terms, language, is_exact)
+                        })
                     {
                         snippet.subject = subject.into();
                     }
 
-                    // Download message
-                    let blob_hash = metadata.blob_hash();
-                    let Some(raw_body) = self
-                        .fetch_blob(&blob_hash, 0..usize::MAX, Some(metadata.size() as u64))
-                        .await?
-                    else {
+                    entries.push(SnippetEntry::Fetch {
+                        snippet,
+                        blob_hash: metadata.blob_hash(),
+                        size: metadata.size() as u64,
+                    });
+                }
+
+                // Second pass: download the blobs with bounded concurrency. `buffered`
+                // yields results in request order, so the response order (and the
+                // order of `notFound`) is the same as with sequential downloads, and
+                // at most SNIPPET_BLOB_CONCURRENCY blobs are held in memory.
+                let mut downloads = futures_util::stream::iter(entries)
+                    .map(|entry| async move {
+                        match entry {
+                            SnippetEntry::Fetch {
+                                snippet,
+                                blob_hash,
+                                size,
+                            } => {
+                                let blob =
+                                    self.fetch_blob(&blob_hash, 0..usize::MAX, Some(size)).await;
+                                SnippetDownload::Fetched {
+                                    snippet,
+                                    blob_hash,
+                                    blob,
+                                }
+                            }
+                            SnippetEntry::Done(snippet) => SnippetDownload::Done(snippet),
+                            SnippetEntry::NotFound(id) => SnippetDownload::NotFound(id),
+                        }
+                    })
+                    .buffered(SNIPPET_BLOB_CONCURRENCY);
+
+                while let Some(download) = downloads.next().await {
+                    let (mut snippet, blob_hash, blob) = match download {
+                        SnippetDownload::Done(snippet) => {
+                            response.list.push(snippet);
+                            continue;
+                        }
+                        SnippetDownload::NotFound(id) => {
+                            not_found.push(id);
+                            continue;
+                        }
+                        SnippetDownload::Fetched {
+                            snippet,
+                            blob_hash,
+                            blob,
+                        } => (snippet, blob_hash, blob),
+                    };
+                    let email_id = snippet.email_id;
+                    let Some(raw_body) = blob? else {
                         trc::event!(
                             Store(trc::StoreEvent::NotFound),
                             AccountId = account_id,
@@ -236,6 +313,11 @@ impl EmailSearchSnippet for Server {
                         not_found.push(MaybeInvalid::Value(email_id));
                         continue;
                     };
+                    let Lookup::Found(structure) = batch.lookup(email_id.document_id()) else {
+                        continue;
+                    };
+                    let metadata = structure.unarchive().caused_by(trc::location!())?;
+                    let root = metadata.root();
                     let raw = metadata.raw_message(None, &raw_body);
                     let source = PartSource::Raw(raw);
 
@@ -274,6 +356,7 @@ impl EmailSearchSnippet for Server {
 
                     response.list.push(snippet);
                 }
+                drop(downloads);
 
                 if !batch.next_round() {
                     break;

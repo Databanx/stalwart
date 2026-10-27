@@ -48,6 +48,12 @@ use utils::cheeky_hash::{CheekyHash, CheekyHashSet};
 /// latency, so fetching the blobs one by one makes large result pages slow.
 const SNIPPET_BLOB_CONCURRENCY: usize = 8;
 
+/// Above this many message bytes in a batch, the blobs are downloaded one by one,
+/// as upstream does. Each download reserves read memory for the message (twice its
+/// size with LZ4), so eight large messages in flight could exceed the memory budget
+/// and fail the request (and concurrent reads) with a retry-later error.
+const SNIPPET_PARALLEL_MAX_BYTES: u64 = 16 * 1024 * 1024;
+
 /// A requested id after the metadata pass, in request order.
 enum SnippetEntry {
     Done(SearchSnippet),
@@ -259,7 +265,20 @@ impl EmailSearchSnippet for Server {
                 // Second pass: download the blobs with bounded concurrency. `buffered`
                 // yields results in request order, so the response order (and the
                 // order of `notFound`) is the same as with sequential downloads, and
-                // at most SNIPPET_BLOB_CONCURRENCY blobs are held in memory.
+                // at most SNIPPET_BLOB_CONCURRENCY blobs are held in memory. Batches
+                // with large messages fall back to sequential downloads.
+                let fetch_bytes: u64 = entries
+                    .iter()
+                    .map(|entry| match entry {
+                        SnippetEntry::Fetch { size, .. } => *size,
+                        _ => 0,
+                    })
+                    .sum();
+                let concurrency = if fetch_bytes <= SNIPPET_PARALLEL_MAX_BYTES {
+                    SNIPPET_BLOB_CONCURRENCY
+                } else {
+                    1
+                };
                 let mut downloads = futures_util::stream::iter(entries)
                     .map(|entry| async move {
                         match entry {
@@ -280,7 +299,7 @@ impl EmailSearchSnippet for Server {
                             SnippetEntry::NotFound(id) => SnippetDownload::NotFound(id),
                         }
                     })
-                    .buffered(SNIPPET_BLOB_CONCURRENCY);
+                    .buffered(concurrency);
 
                 while let Some(download) = downloads.next().await {
                     let (mut snippet, blob_hash, blob) = match download {
@@ -314,6 +333,9 @@ impl EmailSearchSnippet for Server {
                         continue;
                     };
                     let Lookup::Found(structure) = batch.lookup(email_id.document_id()) else {
+                        // The batch does not change between the two passes, so the
+                        // first pass already resolved this document as Found.
+                        debug_assert!(false, "snippet batch lookup changed between passes");
                         continue;
                     };
                     let metadata = structure.unarchive().caused_by(trc::location!())?;

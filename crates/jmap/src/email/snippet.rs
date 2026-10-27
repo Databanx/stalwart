@@ -4,13 +4,26 @@
  * SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-SEL
  */
 
-use common::{Server, auth::AccessToken};
-use email::{
-    cache::{MessageCacheFetch, email::MessageCacheAccess},
-    message::metadata::{
-        ArchivedMetadataPartType, DecodedPartContent, MessageMetadata, MetadataHeaderName,
+use common::{
+    Server,
+    auth::AccessToken,
+    storage::{
+        batch::{DocumentBatch, Lookup, MAX_BATCH_BYTES, MAX_BATCH_DOCUMENTS},
+        blob::FetchedBlob,
     },
 };
+use email::{
+    cache::{
+        MessageCacheFetch,
+        email::{MessageAccess, MessageCacheAccess},
+        mailbox::MailboxCacheAccess,
+    },
+    message::{
+        messagedata::{EmailMessageData, MetadataForm},
+        metadata::{PartKind, PartSource},
+    },
+};
+use futures_util::StreamExt;
 use jmap_proto::{
     method::{
         query::Filter,
@@ -19,22 +32,49 @@ use jmap_proto::{
     object::email::EmailFilter,
     request::MaybeInvalid,
 };
-use futures_util::{StreamExt, TryStreamExt, stream};
-use mail_parser::decoders::html::html_to_text;
 use nlp::language::{Language, search_snippet::generate_snippet, stemmer::Stemmer};
 use std::future::Future;
 use store::{
-    ValueKey,
     backend::MAX_TOKEN_LENGTH,
-    write::{AlignedBytes, Archive},
+    search::{MAX_PLANNED_TOKENS, MAX_QUERY_LEAVES, MAX_QUERY_PLANNED_TOKENS},
 };
 use trc::AddContext;
-use types::{acl::Acl, collection::Collection, field::EmailField, id::Id};
-use utils::chained_bytes::ChainedBytes;
+use types::{acl::Acl, blob_hash::BlobHash, collection::Collection, id::Id};
+use utils::cheeky_hash::{CheekyHash, CheekyHashSet};
 
-enum SnippetOutcome {
-    Found(SearchSnippet),
+/// Maximum number of blobs downloaded concurrently by `SearchSnippet/get`.
+///
+/// The blob store can be a remote object store (S3, R2) with a high per-request
+/// latency, so fetching the blobs one by one makes large result pages slow.
+const SNIPPET_BLOB_CONCURRENCY: usize = 8;
+
+/// Upper bound for the message bytes in flight at once. Each download reserves read
+/// memory for the message (twice its size with LZ4), so eight large messages in
+/// flight could exceed the memory budget and fail the request (and concurrent
+/// reads) with a retry-later error. The concurrency of a batch is this bound
+/// divided by its largest message, between 1 (sequential, as upstream) and
+/// SNIPPET_BLOB_CONCURRENCY.
+const SNIPPET_PARALLEL_MAX_BYTES: u64 = 16 * 1024 * 1024;
+
+/// A requested id after the metadata pass, in request order.
+enum SnippetEntry {
+    Done(SearchSnippet),
     NotFound(MaybeInvalid<Id>),
+    Fetch {
+        snippet: SearchSnippet,
+        blob_hash: BlobHash,
+        size: u64,
+    },
+}
+
+enum SnippetDownload {
+    Done(SearchSnippet),
+    NotFound(MaybeInvalid<Id>),
+    Fetched {
+        snippet: SearchSnippet,
+        blob_hash: BlobHash,
+        blob: trc::Result<Option<FetchedBlob>>,
+    },
 }
 
 pub trait EmailSearchSnippet: Sync + Send {
@@ -54,6 +94,9 @@ impl EmailSearchSnippet for Server {
         let mut filter_stack = vec![];
         let mut include_term = true;
         let mut terms = vec![];
+        let mut seen = CheekyHashSet::default();
+        let mut planned = 0usize;
+        let mut conditions = 0usize;
         let mut is_exact = false;
         let mut language = self.core.email.default_language;
 
@@ -65,23 +108,46 @@ impl EmailSearchSnippet for Server {
                     | EmailFilter::Body(text) = cond
                         && include_term
                     {
+                        conditions += 1;
+                        if conditions > MAX_QUERY_LEAVES {
+                            return Err(too_many_terms());
+                        }
                         let (text, language_) =
                             Language::detect(text, self.core.email.default_language);
                         language = language_;
                         if (text.starts_with('"') && text.ends_with('"'))
                             || (text.starts_with('\'') && text.ends_with('\''))
                         {
-                            for token in language.tokenize_text(&text, MAX_TOKEN_LENGTH) {
-                                terms.push(token.word.into_owned());
-                            }
+                            let before = terms.len();
+                            terms.extend(
+                                language
+                                    .tokenize_text(&text, MAX_TOKEN_LENGTH)
+                                    .take(MAX_PLANNED_TOKENS)
+                                    .map(|token| token.word.into_owned()),
+                            );
+                            planned += terms.len() - before;
                             is_exact = true;
                         } else {
+                            let mut condition_words = 0;
                             for token in Stemmer::new(&text, language, MAX_TOKEN_LENGTH) {
+                                if !seen.insert(CheekyHash::new(token.word.as_bytes())) {
+                                    continue;
+                                }
                                 terms.push(token.word.into_owned());
-                                if let Some(stemmed_word) = token.stemmed_word {
+                                if let Some(stemmed_word) = token.stemmed_word
+                                    && seen.insert(CheekyHash::new(stemmed_word.as_bytes()))
+                                {
                                     terms.push(stemmed_word.into_owned());
                                 }
+                                condition_words += 1;
+                                if condition_words == MAX_PLANNED_TOKENS {
+                                    break;
+                                }
                             }
+                            planned += condition_words;
+                        }
+                        if planned > MAX_QUERY_PLANNED_TOKENS {
+                            return Err(too_many_terms());
                         }
                     }
                 }
@@ -99,180 +165,228 @@ impl EmailSearchSnippet for Server {
                 }
             }
         }
+        let email_ids = request.email_ids.unwrap();
+        if email_ids.len() > self.core.jmap.snippet_max_results {
+            return Err(trc::JmapEvent::RequestTooLarge.into_err());
+        }
+
         let account_id = request.account_id.document_id();
         let cached_messages = self
             .get_cached_messages(account_id)
             .await
             .caused_by(trc::location!())?;
-        let document_ids = if access_token.is_member(account_id) {
-            cached_messages.email_document_ids()
+        let access = if access_token.is_member(account_id) {
+            MessageAccess::All
         } else {
-            cached_messages.shared_messages(access_token, Acl::ReadItems)
+            MessageAccess::Mailboxes(cached_messages.shared_mailboxes(access_token, Acl::ReadItems))
         };
 
-        let email_ids = request.email_ids.unwrap();
         let mut response = GetSearchSnippetResponse {
             account_id: request.account_id,
             list: Vec::with_capacity(email_ids.len()),
             not_found: None,
         };
         let mut not_found = Vec::new();
+        let mut batch = DocumentBatch::new(MAX_BATCH_BYTES);
 
-        if email_ids.len() > self.core.jmap.snippet_max_results {
-            return Err(trc::JmapEvent::RequestTooLarge.into_err());
-        }
-
-        // Fetch blobs concurrently: each iteration of this loop awaits a
-        // single blob_store get_blob, and serialising them stalls the response
-        // when the blob backend has non-trivial per-request latency.
-        let concurrency = self.core.jmap.snippet_concurrency.max(1);
-        let terms = &terms;
-        let document_ids = &document_ids;
-
-        let outcomes: Vec<SnippetOutcome> = stream::iter(email_ids)
-            .map(|email_id| async move {
-                // Preserve unparsable ids in `notFound` instead of dropping them.
-                let email_id = match email_id {
-                    MaybeInvalid::Value(email_id) => email_id,
-                    invalid => return Ok::<_, trc::Error>(SnippetOutcome::NotFound(invalid)),
-                };
-                let document_id = email_id.document_id();
-                if !document_ids.contains(document_id) {
-                    return Ok(SnippetOutcome::NotFound(MaybeInvalid::Value(email_id)));
+        for chunk in email_ids.chunks(MAX_BATCH_DOCUMENTS) {
+            batch.reset();
+            if !terms.is_empty() {
+                for email_id in chunk {
+                    if let MaybeInvalid::Value(email_id) = email_id
+                        && cached_messages
+                            .email_by_id(&email_id.document_id())
+                            .is_some_and(|message| access.allows(message))
+                    {
+                        batch.request(email_id.document_id());
+                    }
                 }
+            }
 
-                let mut snippet = SearchSnippet {
-                    email_id,
-                    subject: None,
-                    preview: None,
-                };
-
-                if terms.is_empty() {
-                    return Ok(SnippetOutcome::Found(snippet));
-                }
-
-                let metadata_ = match self
-                    .store()
-                    .get_value::<Archive<AlignedBytes>>(ValueKey::property(
-                        account_id,
-                        Collection::Email,
-                        document_id,
-                        EmailField::Metadata,
-                    ))
-                    .await?
-                {
-                    Some(metadata) => metadata,
-                    None => return Ok(SnippetOutcome::NotFound(MaybeInvalid::Value(email_id))),
-                };
-                let metadata = metadata_
-                    .unarchive::<MessageMetadata>()
+            loop {
+                self.read_metadata_batch(account_id, MetadataForm::Structure, &mut batch)
+                    .await
                     .caused_by(trc::location!())?;
 
-                // Add subject snippet
-                let contents = &metadata.contents[0];
-                if let Some(subject) = contents
-                    .root_part()
-                    .header_value(&MetadataHeaderName::Subject)
-                    .and_then(|v| v.as_text())
-                    .and_then(|v| generate_snippet(v, terms, language, is_exact))
-                {
-                    snippet.subject = subject.into();
+                // First pass: classify every requested id, in request order.
+                let mut entries = Vec::with_capacity(chunk.len());
+                for email_id in chunk {
+                    let email_id = match email_id {
+                        MaybeInvalid::Value(email_id) => *email_id,
+                        invalid => {
+                            if batch.is_first_round() {
+                                entries.push(SnippetEntry::NotFound(invalid.clone()));
+                            }
+                            continue;
+                        }
+                    };
+                    let document_id = email_id.document_id();
+                    let mut snippet = SearchSnippet {
+                        email_id,
+                        subject: None,
+                        preview: None,
+                    };
+                    if !cached_messages
+                        .email_by_id(&document_id)
+                        .is_some_and(|message| access.allows(message))
+                    {
+                        if batch.is_first_round() {
+                            entries.push(SnippetEntry::NotFound(MaybeInvalid::Value(email_id)));
+                        }
+                        continue;
+                    } else if terms.is_empty() {
+                        entries.push(SnippetEntry::Done(snippet));
+                        continue;
+                    }
+                    let structure = match batch.lookup(document_id) {
+                        Lookup::Found(structure) => structure,
+                        Lookup::Missing => {
+                            entries.push(SnippetEntry::NotFound(MaybeInvalid::Value(email_id)));
+                            continue;
+                        }
+                        Lookup::Skip => continue,
+                    };
+                    let metadata = structure.unarchive().caused_by(trc::location!())?;
+
+                    // Add subject snippet
+                    if let Some(subject) =
+                        metadata.root().envelope().subject().and_then(|subject| {
+                            generate_snippet(subject, &terms, language, is_exact)
+                        })
+                    {
+                        snippet.subject = subject.into();
+                    }
+
+                    entries.push(SnippetEntry::Fetch {
+                        snippet,
+                        blob_hash: metadata.blob_hash(),
+                        size: metadata.size() as u64,
+                    });
                 }
 
-                // Download message
-                let raw_body = if let Some(raw_body) = self
-                    .blob_store()
-                    .get_blob(metadata.blob_hash.0.as_slice(), 0..usize::MAX)
-                    .await?
-                {
-                    raw_body
-                } else {
-                    trc::event!(
-                        Store(trc::StoreEvent::NotFound),
-                        AccountId = account_id,
-                        DocumentId = email_id.document_id(),
-                        Collection = Collection::Email,
-                        BlobId = metadata.blob_hash.0.as_slice(),
-                        Details = "Blob not found.",
-                        CausedBy = trc::location!(),
-                    );
-                    return Ok(SnippetOutcome::NotFound(MaybeInvalid::Value(email_id)));
-                };
-                let raw_message = ChainedBytes::new(metadata.raw_headers.as_ref()).with_last(
-                    raw_body
-                        .get(metadata.blob_body_offset.to_native() as usize..)
-                        .unwrap_or_default(),
-                );
-
-                // Find a matching part
-                'outer: for part in contents.parts.iter() {
-                    match &part.body {
-                        ArchivedMetadataPartType::Text => {
-                            let text = match part.decode_contents(&raw_message) {
-                                DecodedPartContent::Text(text) => text,
-                                _ => unreachable!(),
-                            };
-
-                            if let Some(body) = generate_snippet(&text, terms, language, is_exact)
-                            {
-                                snippet.preview = body.into();
-                                break;
+                // Second pass: download the blobs with bounded concurrency. `buffered`
+                // yields results in request order, so the response order (and the
+                // order of `notFound`) is the same as with sequential downloads, and
+                // at most `concurrency` blobs are in flight (plus the one being
+                // processed), so the bytes in flight stay under
+                // SNIPPET_PARALLEL_MAX_BYTES unless a single message is larger, in
+                // which case it downloads alone, as upstream does.
+                let largest = entries
+                    .iter()
+                    .filter_map(|entry| match entry {
+                        SnippetEntry::Fetch { size, .. } => Some(*size),
+                        _ => None,
+                    })
+                    .max()
+                    .unwrap_or(0)
+                    .max(1);
+                let concurrency = usize::try_from(SNIPPET_PARALLEL_MAX_BYTES / largest)
+                    .unwrap_or(SNIPPET_BLOB_CONCURRENCY)
+                    .clamp(1, SNIPPET_BLOB_CONCURRENCY);
+                let mut downloads = futures_util::stream::iter(entries)
+                    .map(|entry| async move {
+                        match entry {
+                            SnippetEntry::Fetch {
+                                snippet,
+                                blob_hash,
+                                size,
+                            } => {
+                                let blob =
+                                    self.fetch_blob(&blob_hash, 0..usize::MAX, Some(size)).await;
+                                SnippetDownload::Fetched {
+                                    snippet,
+                                    blob_hash,
+                                    blob,
+                                }
                             }
+                            SnippetEntry::Done(snippet) => SnippetDownload::Done(snippet),
+                            SnippetEntry::NotFound(id) => SnippetDownload::NotFound(id),
                         }
-                        ArchivedMetadataPartType::Html => {
-                            let text = match part.decode_contents(&raw_message) {
-                                DecodedPartContent::Text(html) => html_to_text(&html),
-                                _ => unreachable!(),
-                            };
+                    })
+                    .buffered(concurrency);
 
-                            if let Some(body) = generate_snippet(&text, terms, language, is_exact)
-                            {
-                                snippet.preview = body.into();
-                                break;
+                while let Some(download) = downloads.next().await {
+                    let (mut snippet, blob_hash, blob) = match download {
+                        SnippetDownload::Done(snippet) => {
+                            response.list.push(snippet);
+                            continue;
+                        }
+                        SnippetDownload::NotFound(id) => {
+                            not_found.push(id);
+                            continue;
+                        }
+                        SnippetDownload::Fetched {
+                            snippet,
+                            blob_hash,
+                            blob,
+                        } => (snippet, blob_hash, blob),
+                    };
+                    let email_id = snippet.email_id;
+                    let Some(raw_body) = blob? else {
+                        trc::event!(
+                            Store(trc::StoreEvent::NotFound),
+                            AccountId = account_id,
+                            DocumentId = email_id.document_id(),
+                            Collection = Collection::Email,
+                            BlobId = blob_hash.as_slice(),
+                            Details = "Blob not found.",
+                            CausedBy = trc::location!(),
+                        );
+
+                        not_found.push(MaybeInvalid::Value(email_id));
+                        continue;
+                    };
+                    let Lookup::Found(structure) = batch.lookup(email_id.document_id()) else {
+                        // The batch does not change between the two passes, so the
+                        // first pass already resolved this document as Found.
+                        debug_assert!(false, "snippet batch lookup changed between passes");
+                        continue;
+                    };
+                    let metadata = structure.unarchive().caused_by(trc::location!())?;
+                    let root = metadata.root();
+                    let raw = metadata.raw_message(None, &raw_body);
+                    let source = PartSource::Raw(raw);
+
+                    // Find a matching part
+                    'outer: for part in root.parts() {
+                        match part.kind() {
+                            PartKind::Text | PartKind::Html => {
+                                if let Some(body) = part.plain_text(&source).and_then(|text| {
+                                    generate_snippet(&text, &terms, language, is_exact)
+                                }) {
+                                    snippet.preview = body.into();
+                                    break;
+                                }
                             }
-                        }
-                        ArchivedMetadataPartType::Message(message) => {
-                            for part in metadata.contents[u16::from(message) as usize].parts.iter()
-                            {
-                                if let ArchivedMetadataPartType::Text
-                                | ArchivedMetadataPartType::Html = part.body
-                                {
-                                    let text = match (part.decode_contents(&raw_message), &part.body)
-                                    {
-                                        (
-                                            DecodedPartContent::Text(text),
-                                            ArchivedMetadataPartType::Text,
-                                        ) => text,
-                                        (
-                                            DecodedPartContent::Text(html),
-                                            ArchivedMetadataPartType::Html,
-                                        ) => html_to_text(&html).into(),
-                                        _ => unreachable!(),
-                                    };
-
+                            PartKind::Message => {
+                                let Some(nested) = part.nested() else {
+                                    continue;
+                                };
+                                let Some(nested_source) = metadata.source(nested, raw) else {
+                                    continue;
+                                };
+                                for part in nested.parts().filter(|part| part.is_text()) {
                                     if let Some(body) =
-                                        generate_snippet(&text, terms, language, is_exact)
+                                        part.plain_text(&nested_source).and_then(|text| {
+                                            generate_snippet(&text, &terms, language, is_exact)
+                                        })
                                     {
                                         snippet.preview = body.into();
                                         break 'outer;
                                     }
                                 }
                             }
+                            _ => (),
                         }
-                        _ => (),
                     }
+
+                    response.list.push(snippet);
                 }
+                drop(downloads);
 
-                Ok(SnippetOutcome::Found(snippet))
-            })
-            .buffer_unordered(concurrency)
-            .try_collect()
-            .await?;
-
-        for outcome in outcomes {
-            match outcome {
-                SnippetOutcome::Found(s) => response.list.push(s),
-                SnippetOutcome::NotFound(id) => not_found.push(id),
+                if !batch.next_round() {
+                    break;
+                }
             }
         }
 
@@ -284,56 +398,9 @@ impl EmailSearchSnippet for Server {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use futures_util::{StreamExt, TryStreamExt, stream};
-    use std::time::Duration;
-    // `tokio::time::Instant` is driven by the test runtime's virtual clock, so
-    // under `start_paused = true` it advances with the mocked `sleep`s. Using
-    // `std::time::Instant` here would measure wall-clock (~µs under auto-advance)
-    // and pass even for a sequential implementation, making the test vacuous.
-    use tokio::time::Instant;
-
-    /// Verifies the stream primitive that `email_search_snippet` relies on:
-    /// `stream::iter(...).map(future).buffer_unordered(N)` should run up to
-    /// `N` futures concurrently, collapsing wall time from `n*delay` down to
-    /// roughly `ceil(n/N) * delay`. This is a unit-level proof that swapping
-    /// the previous sequential `for` loop for `buffer_unordered` actually
-    /// pays off when each iteration awaits a non-trivial latency (e.g. an
-    /// S3-style blob GET); the integration layer uses the same primitive
-    /// over real blob futures.
-    #[tokio::test(flavor = "current_thread", start_paused = true)]
-    async fn buffer_unordered_collapses_latency() {
-        let per_delay = Duration::from_millis(100);
-        let count: usize = 16;
-        let concurrency: usize = 8;
-
-        let started = Instant::now();
-        let outcomes: Vec<Duration> = stream::iter(0..count)
-            .map(|_| async move {
-                tokio::time::sleep(per_delay).await;
-                Ok::<_, std::convert::Infallible>(per_delay)
-            })
-            .buffer_unordered(concurrency)
-            .try_collect()
-            .await
-            .expect("stream completed");
-        let elapsed = started.elapsed();
-
-        assert_eq!(outcomes.len(), count);
-
-        // Sequential lower bound (with paused time): exactly count * per_delay.
-        // Concurrent upper bound: a small multiple of ceil(count/concurrency) * per_delay.
-        let waves = count.div_ceil(concurrency) as u32;
-        let concurrent_target = per_delay * waves;
-        let sequential_total = per_delay * count as u32;
-        assert!(
-            elapsed < sequential_total / 2,
-            "elapsed {elapsed:?} not meaningfully lower than sequential {sequential_total:?}",
-        );
-        assert!(
-            elapsed <= concurrent_target * 2,
-            "elapsed {elapsed:?} exceeded ~2x concurrent target {concurrent_target:?}",
-        );
-    }
+#[cold]
+fn too_many_terms() -> trc::Error {
+    trc::LimitEvent::SizeRequest
+        .into_err()
+        .details("Too many search terms in one query")
 }

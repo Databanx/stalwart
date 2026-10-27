@@ -1,8 +1,9 @@
 # CI no fork Databanx
 
-Este fork **não roda o CI do upstream**. Os workflows `ci.yml`, `scorecard.yml`,
-`trivy.yml`, `auto-close-issues.yml`, `auto-close-prs.yml` e
-`auto-redirect-discussions.yml` são removidos em cada branch `update/vX.Y.Z`,
+Este fork **não roda o CI do upstream**. Os workflows `ci.yml`, `ci-retry.yml`,
+`scorecard.yml`, `trivy.yml`, `auto-close-issues.yml`, `auto-close-prs.yml`,
+`auto-redirect-discussions.yml` e `test.yml`, e também o
+`.github/allowed-pr-authors.txt`, são removidos em cada branch `update/vX.Y.Z`,
 de propósito.
 
 ## Por quê
@@ -29,10 +30,16 @@ Os três `auto-*` são gestão de comunidade do upstream. `auto-close-prs.yml` �
 ativamente perigoso aqui: ele fecha **e tranca** qualquer PR cujo autor não
 esteja em `.github/allowed-pr-authors.txt` — o que inclui todos os nossos.
 
+`ci-retry.yml` reexecuta jobs falhos do `ci.yml`; sem o `ci.yml`, não tem função.
+`allowed-pr-authors.txt` é a lista de autores do `auto-close-prs.yml`.
+
 ## O que sobra
 
-`test.yml`, que é `workflow_dispatch` puro (só roda se alguém apertar o botão)
-e usa `ubuntu-latest` — custo zero em repouso.
+Nenhum workflow: `.github/workflows/` fica vazio. O `test.yml` (só
+`workflow_dispatch`) ficou até a 0.16; a 1.0 do upstream não tem mais nem ele
+nem o diretório `tests/` que ele rodava, e a cópia do fork saiu no merge da
+`update/v1.0.0`. Fica só o
+`dependabot.yml` do fork (cargo).
 
 Além disso, o Actions está desabilitado no nível do repositório
 (`gh api repos/Databanx/stalwart/actions/permissions` -> `enabled: false`),

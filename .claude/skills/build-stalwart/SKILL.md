@@ -184,9 +184,10 @@ This flow covers 1.x point releases (and, as history, 0.16.x). The 0.16 → 1.0 
 
 ### Deploy notes for v1.0.2 → v1.1.0 (from the upstream CHANGELOG, read on 2026-11-09)
 
-The bump after `v1.0.1-databanx-1` goes straight to v1.1.0, so the upgrade notes of three releases apply to one swap. None is a store migration; check each before the swap:
+The bump after `v1.0.1-databanx-1` goes straight to v1.1.0, so the upgrade notes of three releases apply to one swap. None is a store migration, but **the binary rollback to 1.0.1 only works while 1.1.0 has not written new enum variants to the registry** (see "Rollback"). Check each before the swap:
 
-- **New permissions on the default roles (1.0.2, 1.0.3, 1.1.0).** Default roles are only created on a fresh install, so an upgraded server lacks the new permissions (encryption settings, external public keys, S/MIME trust anchors, `sysPasskey*`). Start once with `STALWART_UPDATE_ROLE_PERMISSIONS=true` in the unit's env file, then remove it and restart.
+- **New permissions on the default roles (1.0.2, 1.0.3, 1.1.0).** Default roles are only created on a fresh install, so an upgraded server lacks the new permissions (encryption settings, external public keys, S/MIME trust anchors, `sysPasskey*`). Upstream's fix is to start once with `STALWART_UPDATE_ROLE_PERMISSIONS=true` in the unit's env file, then remove it and restart. **Do not do this on the swap itself**: it writes `Permission` ids 643–666 into the default roles, and 1.0.1 (max id 642) cannot deserialize a role that carries them, so after a rollback every account on the default User role fails to log in. Export the roles first (`x:Role/get`), run the variable only after the observation period, once rollback to 1.0.1 is off the table.
+- **`firstParty` is gone from `OAuthClient` (1.0.3, not in the CHANGELOG).** A client is first-party only when its client id belongs to an `x:Application`; any other registered client gets just the scopes it requests. List `x:OAuthClient` before the swap and check for clients that relied on `firstParty: true`.
 - **Stalwart OAuth scopes (1.0.3).** Third-party apps (not the WebUI) that manage app passwords, API keys or account settings need `urn:stalwart:oauth:scope:security`, `urn:stalwart:oauth:scope:settings` or `urn:stalwart:oauth:scope:full`. With an external OpenID Connect provider the scopes are created in the provider and assigned to the apps. Check which Databanx apps call those APIs with a provider token before the swap.
 - **Encryption at rest (1.0.2).** Accounts that had it enabled are set to `Disabled` on upgrade until the key is selected again, and `Email.encryptAtRest` became `atRestEnable` in the new `Encryption` settings (enabled by default). Check whether any account uses it.
 - **Passkeys (1.1.0)** are for the internal directory only and use the public URL host as relying party ID; nothing to do with the external OIDC directory.
@@ -286,6 +287,8 @@ sudo cp -p $BIN.bak-<prior-tag>-<ts> $BIN
 sudo chown stalwart:stalwart $BIN
 sudo systemctl start stalwart-v1
 ```
+
+**A binary rollback is only safe while the newer version has not written registry values the older one cannot read.** Registry enums are pickled as a `u16` id and an unknown id fails the whole object (`crates/registry/src/pickle.rs`, `Self::from_id`), so the older binary cannot load an object that carries a variant added later. From 1.1.0 back to 1.0.1 that means: default roles updated with `STALWART_UPDATE_ROLE_PERMISSIONS` (remove the new permissions with `x:Role/set` **while still on 1.1.0**, or restore the exported roles, before swapping back), OAuth grants and clients with the `urn:stalwart:oauth:scope:*` scopes (WebUI sessions created on 1.1.0 may need a new login), passkeys, and `zstd` as blob compression. At every bump, compare the enums in `crates/registry/src/schema/enums.rs` between the two tags before promising a rollback.
 
 This rolls back a 1.x binary only. Going back to 0.16 is a data migration (`stalwart-migrate rollback`), not a binary swap — see `localmail-server/docs/stalwart-v1/`.
 

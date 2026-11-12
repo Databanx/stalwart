@@ -14,7 +14,6 @@ pub mod registry;
 pub mod search;
 pub mod write;
 
-use ::registry::schema::enums::CompressionAlgo;
 pub use ahash;
 pub use blake3;
 pub use parking_lot;
@@ -428,12 +427,28 @@ pub enum InMemoryStore {
     Local(Arc<backend::local::LocalStore>),
     #[cfg(feature = "redis")]
     Redis(Arc<backend::redis::RedisStore>),
+    #[cfg(feature = "keep")]
+    Keep(Arc<backend::keep::KeepStore>),
     Http(Arc<HttpStore>),
     Static(Arc<StaticMemoryStore>),
     // SPDX-SnippetBegin
     // SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
     // SPDX-License-Identifier: LicenseRef-SEL
     #[cfg(feature = "enterprise")]
+    Sharded(Arc<backend::composite::sharded_lookup::ShardedInMemory>),
+    // SPDX-SnippetEnd
+}
+
+#[derive(Clone)]
+pub enum CacheSwapStore {
+    #[cfg(feature = "redis")]
+    Redis(Arc<backend::redis::RedisStore>),
+    #[cfg(feature = "keep")]
+    Keep(backend::keep::swap::KeepSwapClient),
+    // SPDX-SnippetBegin
+    // SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
+    // SPDX-License-Identifier: LicenseRef-SEL
+    #[cfg(all(feature = "enterprise", feature = "redis"))]
     Sharded(Arc<backend::composite::sharded_lookup::ShardedInMemory>),
     // SPDX-SnippetEnd
 }
@@ -447,6 +462,7 @@ pub struct RegistryStoreInner {
     pub(crate) store: Store,
     pub(crate) node_id: u16,
     pub(crate) env_recovery_mode: bool,
+    pub(crate) env_update_role_permissions: bool,
     pub(crate) env_recovery_admin: Option<(String, String)>,
     pub(crate) env_cluster_role: Option<String>,
     pub(crate) env_push_shard_id: u32,
@@ -512,6 +528,13 @@ impl From<MeiliSearchStore> for SearchStore {
 impl From<backend::local::LocalStore> for InMemoryStore {
     fn from(store: backend::local::LocalStore) -> Self {
         Self::Local(Arc::new(store))
+    }
+}
+
+#[cfg(feature = "keep")]
+impl From<backend::keep::KeepStore> for InMemoryStore {
+    fn from(store: backend::keep::KeepStore) -> Self {
+        Self::Keep(Arc::new(store))
     }
 }
 
@@ -885,6 +908,20 @@ impl Store {
     #[inline(always)]
     pub fn is_active(&self) -> bool {
         !matches!(self, Self::None)
+    }
+
+    pub fn is_responsive(&self) -> bool {
+        match self {
+            #[cfg(feature = "postgres")]
+            Store::PostgreSQL(store) => store.is_responsive(),
+            // SPDX-SnippetBegin
+            // SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
+            // SPDX-License-Identifier: LicenseRef-SEL
+            #[cfg(all(feature = "enterprise", any(feature = "postgres", feature = "mysql")))]
+            Store::SQLReadReplica(store) => store.is_responsive(),
+            // SPDX-SnippetEnd
+            _ => true,
+        }
     }
 
     pub fn chunk_size(&self) -> Option<usize> {

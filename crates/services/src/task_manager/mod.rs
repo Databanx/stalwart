@@ -133,7 +133,8 @@ impl TaskTypeLimits for TaskType {
         match self {
             TaskType::DestroyAccount
             | TaskType::AccountMaintenance
-            | TaskType::StoreMaintenance => 1,
+            | TaskType::StoreMaintenance
+            | TaskType::BlobRecode => 1,
             // SPDX-SnippetBegin
             // SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
             // SPDX-License-Identifier: LicenseRef-SEL
@@ -152,6 +153,7 @@ impl TaskTypeLimits for TaskType {
             | TaskType::AcmeRenewal
             | TaskType::DkimManagement
             | TaskType::DnsManagement
+            | TaskType::ExternalPublicKeyMaintenance
             | TaskType::ShareRevokeCleanup => manager::TASK_QUEUE_BUFFER,
             // SPDX-SnippetBegin
             // SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
@@ -167,6 +169,8 @@ impl TaskTypeLimits for TaskType {
             TaskType::DestroyAccount
             | TaskType::AccountMaintenance
             | TaskType::StoreMaintenance
+            | TaskType::BlobRecode
+            | TaskType::ExternalPublicKeyMaintenance
             | TaskType::SpamFilterMaintenance => 1,
             // SPDX-SnippetBegin
             // SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>

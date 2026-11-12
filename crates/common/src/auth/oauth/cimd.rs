@@ -23,7 +23,7 @@ use store::{
 };
 use trc::{AddContext, AuthEvent};
 use utils::{
-    HttpLimitResponse,
+    HttpLimitResponse, error_chain,
     http::http_client_builder,
     outbound::{OutboundClient, OutboundError, OutboundPolicy, Redirects},
 };
@@ -301,7 +301,7 @@ pub fn validate_cimd_document(
             .scope
             .as_deref()
             .map_or(OAuthScopes::INTEROPERABLE, |scope| {
-                OAuthScopes::parse(scope).interoperable()
+                OAuthScopes::parse(scope).grantable()
             }),
     })
 }
@@ -344,7 +344,7 @@ async fn fetch_cimd_document(url: Url) -> Result<(Vec<u8>, u64), CimdError> {
         trc::event!(
             Auth(AuthEvent::Error),
             Url = display_url.clone(),
-            Reason = err.to_string(),
+            Reason = error_chain(&err),
             Details = "Failed to fetch client metadata document",
         );
         CimdError::Fetch

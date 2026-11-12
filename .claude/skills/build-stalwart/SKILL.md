@@ -6,7 +6,7 @@ version: 3.0.0
 
 # Building the Databanx fork of stalwart
 
-The build is **slow and expensive to redo** — get the feature set right the first time. A cold build in the local Docker builder takes ~13 min (18 cores); the LTO fat + codegen-units=1 link step alone is several minutes. A version bump touches every workspace crate, so even with the cache warm expect ~15–17 min (v0.16.23: 14m46s; v0.16.26: 17m11s; v0.16.27: 17m39s). The 1.0.0 build took 15m39s cold and 12m12s warm.
+The build is **slow and expensive to redo** — get the feature set right the first time. A cold build in the local Docker builder takes ~13 min (18 cores); the LTO fat + codegen-units=1 link step alone is several minutes. A version bump touches every workspace crate, so even with the cache warm expect ~15–17 min (v0.16.23: 14m46s; v0.16.26: 17m11s; v0.16.27: 17m39s). The 1.0.0 build took 15m39s cold and 12m12s warm; 1.0.1 took 28m59s and 1.1.0 16m03s.
 
 ## Hosts
 
@@ -15,7 +15,7 @@ The build is **slow and expensive to redo** — get the feature set right the fi
 
 > **History (2026-06-11):** mx1 used to be the build host (`~/stalwart-build`). The Oracle downsize to 2 vCPU / 8 GB wiped `~/stalwart-build` and `~/.cargo`/`~/.rustup`. The FDB client libs (7.4.6) are still installed on mx1, but do not rebuild the toolchain there — the build now lives in Docker on the workstation, which is faster and doesn't compete with production for CPU.
 
-**Production runs Stalwart 1.0 (`v1.0.0-databanx-1`) since 2026-10-27 05:57 UTC**, after the `stalwart-migrate` cutover from 0.16.27:
+**Production runs Stalwart 1.0 since 2026-10-27 05:57 UTC** (`v1.0.0-databanx-1`, after the `stalwart-migrate` cutover from 0.16.27) and **`v1.0.1-databanx-1` since 2026-10-29 17:04 UTC** (sha256 `92de7588…`), then **`v1.1.0-databanx-1` since 2026-11-12 00:49 UTC** (sha256 `10f956ff…f73a0fa`, 84,067,840 bytes; backup `stalwart.bak-v1.0.1-databanx-1-20261112-004908`). Confirm what is running before a bump (`/opt/stalwart-v1/bin/stalwart --version` and `sha256sum` against the tag message) instead of trusting this line:
 
 - systemd unit `stalwart-v1`, binary `/opt/stalwart-v1/bin/stalwart` (`stalwart:stalwart`), bootstrap config `/etc/stalwart-v1/config.json` (data store only), plus the unit's env file. Everything else lives in the registry, stored in the FDB cluster `fdb-v1` (`/etc/foundationdb-v1/fdb.cluster`), and is read and changed over JMAP (`x:*` objects) or `stalwart-cli` ≥ 1.0.14.
 - The unit only starts while the marker `/etc/stalwart-v1/VIRADA-AUTORIZADA` exists (`ConditionPathExists`), and `ExecStartPre=/opt/stalwart-v1/bin/guard.sh stalwart.service` refuses to start while the 0.16 unit is active.
@@ -46,7 +46,7 @@ cargo build --release \
 
 (`JEMALLOC_SYS_WITH_LG_PAGE=16` must be in the environment — the builder image sets it; see below.)
 
-**Reference size**: the stripped aarch64 binary grows slowly with upstream (v0.16.8: ~63 MB; v0.16.20: 69.6 MB; v0.16.22: 70.1 MB; v0.16.23: 70.3 MB; v0.16.26: 70.4 MB; v0.16.27: 70.6 MB; v1.0.0: 82.5 MB, i.e. 82,494,656 bytes, an upstream jump with the same backends). Compare against the previous release's size in its tag message, not against a fixed number. A jump of several MB from one release to the next means someone re-added a backend — check the rustc invocation for `--cfg feature="rocks"` etc. The backend `strings` check below is the real test.
+**Reference size**: the stripped aarch64 binary grows slowly with upstream (v0.16.8: ~63 MB; v0.16.20: 69.6 MB; v0.16.22: 70.1 MB; v0.16.23: 70.3 MB; v0.16.26: 70.4 MB; v0.16.27: 70.6 MB; v1.0.0: 82.5 MB, i.e. 82,494,656 bytes, an upstream jump with the same backends; v1.0.1: 82,430,080 bytes; v1.1.0: 84,067,840 bytes, +1.6 MB from the new `crypto` crate, encryption gateway and passkeys, same backend counts). Compare against the previous release's size in its tag message, not against a fixed number. A jump of several MB from one release to the next means someone re-added a backend — check the rustc invocation for `--cfg feature="rocks"` etc. The backend `strings` check below is the real test.
 
 **Do not add `rocks`, `sqlite`, `postgres`, `mysql`, `nats`, `azure`, `zenoh`, or `kafka`** unless you have first verified the production config actually references that backend. Each one drags in a heavy dependency that bloats the binary and lengthens the build with zero runtime benefit. If a future config change adds a backend, update the feature list *and* this table — don't preemptively pad it.
 
@@ -157,11 +157,12 @@ This flow covers 1.x point releases (and, as history, 0.16.x). The 0.16 → 1.0 
 
 1. `git fetch upstream --tags` and compare with the fork's latest `vX.Y.Z-databanx-N` tag. Read the new `CHANGELOG.md` entries and check which ones touch our backends (FoundationDB, Redis, S3, the FDB search store, OIDC) — that is the case for bumping.
 2. `git checkout -b update/vX.Y.Z vX.Y.Z` (the upstream tag).
-3. Cherry-pick the fork commits from the previous release, oldest first. List them in two parts: the bump branch itself (`git log --reverse --no-merges --oneline vPREV..vPREV-databanx-1`), then whatever landed on `main` after it (`git log --reverse --no-merges --ancestry-path --oneline vPREV-databanx-1..origin/main`). Do **not** use `upstream..origin/main`, which also lists every stale copy from older bumps (and, since the 1.0 merge, every 0.16 patch), and do not use `--first-parent` from a later `-databanx-N` tag: when that release was cut from a branch off `main` (v0.16.26-databanx-2), first-parent walks `main`'s own history and lists stale copies too. As of v1.0.0-databanx-1 they are:
-   - `c2816c4ca ci: remove os workflows do upstream na v1.0.0` — conflicts whenever upstream touches `.github/`. Resolution: `git rm` every upstream workflow (1.0 has no `tests/`, so `test.yml` goes too) and keep the fork's `dependabot.yml` (cargo only). `c2816c4ca` does **not** remove `.github/allowed-pr-authors.txt`: run `git rm .github/allowed-pr-authors.txt` as an explicit step of the bump (it came back with v1.0.0 and only left the branch in the merge with `main`).
-   - `412651b74 docs: traz a skill build-stalwart e docs/databanx do main para a v1.0.0` + `895fbd1a3 docs: traz o .github/README.md citado pelo dependabot do fork`, plus the docs-only commits made on `main` after the previous tag, so the branch carries the current skill.
-   - `db5e184e1 fix: count OIDC password attempts towards fail2ban` (rewritten for 1.0: `Basic` against an external OIDC directory now emits `AuthEvent::Failed` with `AccountName`; two unit tests in the same crate).
-   - `5a4380c25`, `908569c38`, `beca3bc8e`, `6abe07813` — SearchSnippet/get fetches blobs concurrently (`crates/jmap/src/email/snippet.rs`): up to `SNIPPET_BLOB_CONCURRENCY` = 8 in flight, sized per batch as `SNIPPET_PARALLEL_MAX_BYTES` (16 MiB) / largest message, clamped to 1–8, because 1.0 reserves read memory per download. **Constants, no registry property**, so there is no discriminant to collide anymore.
+3. Cherry-pick the fork commits from the previous release, oldest first. List them in two parts: the bump branch itself (`git log --reverse --no-merges --oneline vPREV..vPREV-databanx-1`), then whatever landed on `main` after it (`git log --reverse --no-merges --ancestry-path --oneline vPREV-databanx-1..origin/main`). Do **not** use `upstream..origin/main`, which also lists every stale copy from older bumps (and, since the 1.0 merge, every 0.16 patch), and do not use `--first-parent` from a later `-databanx-N` tag: when that release was cut from a branch off `main` (v0.16.26-databanx-2), first-parent walks `main`'s own history and lists stale copies too. The hashes change on every bump (they are cherry-picks), so identify the commits by subject; the hashes below are the ones on `update/v1.1.0`. As of v1.1.0 (10 commits) they are:
+   - `c74772233 ci: remove os workflows do upstream na v1.0.0` — conflicts whenever upstream touches `.github/` (v1.1.0: modify/delete on `workflows/ci.yml`). Resolution: `git rm` every upstream workflow (1.0 has no `tests/`, so `test.yml` goes too) and keep the fork's `dependabot.yml` (cargo only), then `git -c core.editor=true cherry-pick --continue`.
+   - `90ccaed96 ci: remove .github/allowed-pr-authors.txt do upstream na v1.0.1` — a commit of its own since v1.0.1-databanx-1, because the workflows commit does not remove that file. It comes last in the list; after the cherry-picks, `git ls-tree -r --name-only HEAD .github` must show only the templates, `README.md` and `dependabot.yml`.
+   - `e0b35ee0e docs: traz a skill build-stalwart e docs/databanx do main para a v1.0.0` + `786fa7b05 docs: traz o .github/README.md citado pelo dependabot do fork` + `3ce3ac17f docs: update build-stalwart skill for the 1.0 production`, plus the docs-only commits made on `main` after the previous tag, so the branch carries the current skill.
+   - `0f2434371 fix: count OIDC password attempts towards fail2ban` (rewritten for 1.0: `Basic` against an external OIDC directory now emits `AuthEvent::Failed` with `AccountName`; two unit tests in the same crate, run with `cargo test -p directory basic_credentials`). Still needed on v1.1.0: upstream `authenticate` returns `AuthEvent::Error` for every credential type.
+   - `662a52044`, `757c8b520`, `0fb082399`, `47233f47e` — SearchSnippet/get fetches blobs concurrently (`crates/jmap/src/email/snippet.rs`): up to `SNIPPET_BLOB_CONCURRENCY` = 8 in flight, sized per batch as `SNIPPET_PARALLEL_MAX_BYTES` (16 MiB) / largest message, clamped to 1–8, because 1.0 reserves read memory per download. **Constants, no registry property**, so there is no discriminant to collide anymore.
 
    Use `git -c commit.gpgsign=false cherry-pick ...`. Not ported to 1.0, don't bring them back: the `receivedAt` sort fixes (PR #25; 1.0 sorts from the message cache), the `SnippetConcurrency` property and its discriminant moves, `fix: correct total count with collapseThreads` (upstream fixed it in v0.16.12) and the rust-s3 pin (upstream moved to rust-s3 0.38.0 in v0.16.26).
 4. **0.16 only (history): validate the `Property` enum.** On 0.16 the SearchSnippet patch added `Property::SnippetConcurrency` with a hardcoded discriminant, and upstream variants in the same range auto-merged into **two variants with the same number** without any conflict marker. The 1.x patch has no property, so skip this step on 1.x; on 1.x, check instead that `SNIPPET_BLOB_CONCURRENCY` / `SNIPPET_PARALLEL_MAX_BYTES` survived the cherry-pick and that upstream did not change the per-download memory reservation they are sized against. The 0.16 check was:
@@ -180,6 +181,20 @@ This flow covers 1.x point releases (and, as history, 0.16.x). The 0.16 → 1.0 
 6. Push the branch, build in Docker, verify backends, tag.
 7. **Review gate — mandatory before opening the PR.** Launch a review agent (see "Review gate" below) and fix what it finds. Only then open the PR to `main` (merge commit, like the previous `update/*` PRs), with the review verdict in the PR body.
 8. **Review gate again before swapping production** if anything changed after the first review (merge of `origin/main` into the branch, conflict resolution, rebuilt binary). Do not touch `/opt/stalwart-v1/bin/stalwart` without an approved review of the exact tree and binary being deployed.
+
+### Deploy notes for v1.0.2 → v1.1.0 (from the upstream CHANGELOG, read on 2026-11-09)
+
+The bump after `v1.0.1-databanx-1` goes straight to v1.1.0, so the upgrade notes of three releases apply to one swap. None is a store migration, but **the binary rollback to 1.0.1 only works while 1.1.0 has not written new enum variants to the registry** (see "Rollback"). Check each before the swap:
+
+- **New permissions on the default roles (1.0.2, 1.0.3, 1.1.0).** Default roles are only created on a fresh install, so an upgraded server lacks the new permissions (encryption settings, external public keys, S/MIME trust anchors, `sysPasskey*`). Upstream's fix is to start once with `STALWART_UPDATE_ROLE_PERMISSIONS=true` in the unit's env file, then remove it and restart. **Do not do this on the swap itself**: it writes `Permission` ids 643–666 into the default roles, and 1.0.1 (max id 642) cannot deserialize a role that carries them, so after a rollback every account on the default User and System Administrator roles fails to log in. Export the roles first (`x:Role/get`), run the variable only after the observation period, once rollback to 1.0.1 is off the table.
+- **`firstParty` is gone from `OAuthClient` (1.0.3, not in the CHANGELOG).** A client is first-party only when its client id belongs to an `x:Application`; any other registered client gets just the scopes it requests. List `x:OAuthClient` before the swap and check for clients that relied on `firstParty: true`.
+- **Stalwart OAuth scopes (1.0.3).** Third-party apps (not the WebUI) that manage app passwords, API keys or account settings need `urn:stalwart:oauth:scope:security`, `urn:stalwart:oauth:scope:settings` or `urn:stalwart:oauth:scope:full`. With an external OpenID Connect provider the scopes are created in the provider and assigned to the apps. Check which Databanx apps call those APIs with a provider token before the swap.
+- **Encryption at rest (1.0.2).** Accounts that had it enabled are set to `Disabled` on upgrade until the key is selected again, and `Email.encryptAtRest` became `atRestEnable` in the new `Encryption` settings (enabled by default). Check whether any account uses it.
+- **Passkeys (1.1.0)** are for the internal directory only and use the public URL host as relying party ID; nothing to do with the external OIDC directory.
+
+**Result of the v1.1.0-databanx-1 swap (2026-11-12 00:49:10 UTC).** About 1 s between `stop` and `start`, 7 listeners 3 s later. The boot logged the usual single `registry.build-warning` (DnsResolver) and no ERROR or `auth.error`; in the first 21 minutes mail was sent and received (also tested by hand from the webmail) and the queue kept draining. Checked on `mx1` right before the swap: 0 `x:OAuthGrant`, one `x:OAuthClient` (`localdrive-sync`, `firstParty: false`), no account with encryption at rest, compression `lz4`; the four roles were identical before and after. Webmail sign-in through the external OIDC provider creates no grant, so the grant count stayed at 0 after the swap. **Still pending:** start once with `STALWART_UPDATE_ROLE_PERMISSIONS=true` after the observation period (it ends the rollback to 1.0.1), then set `PRIOR_TAG` below to `v1.1.0-databanx-1` for the next bump.
+
+**A "high" outbound queue around 00:00–03:00 UTC is the daily DMARC aggregate report batch, not a delivery problem.** Stalwart queues 30–80 reports at midnight UTC (queue `report`, return path at `databanx.com.br`, received from `127.0.0.1`, status `Scheduled`, `retryCount` 0) and spreads their delivery over the next three hours. Before blaming a swap, list `x:QueuedMessage` and group by `queueName` and recipient status; user mail stuck in the queue shows as `TemporaryFailure` with a `retryCount` above 0. The queue lives in FoundationDB and survives the restart.
 
 ## Review gate (required before the PR and before production)
 
@@ -229,7 +244,7 @@ With a single host, the swap takes e-mail down (SMTP/IMAP/JMAP) for the seconds 
 ```
 # Run on mx1.
 TS=$(date +%Y%m%d-%H%M%S)
-PRIOR_TAG=v1.0.0-databanx-1   # whatever version you're replacing
+PRIOR_TAG=v1.0.1-databanx-1   # whatever version you're replacing
 BIN=/opt/stalwart-v1/bin/stalwart
 
 sudo cp -p $BIN $BIN.bak-${PRIOR_TAG}-${TS}
@@ -276,6 +291,16 @@ sudo cp -p $BIN.bak-<prior-tag>-<ts> $BIN
 sudo chown stalwart:stalwart $BIN
 sudo systemctl start stalwart-v1
 ```
+
+**A binary rollback is only safe while the newer version has not written registry values the older one cannot read.** Registry enums are pickled as a `u16` id and an unknown id fails the whole object (`crates/registry/src/pickle.rs`, `Self::from_id`), so the older binary cannot load an object that carries a variant added later. From 1.1.0 back to 1.0.1, clean up **while still on 1.1.0**, before swapping the binary back (the second review gate of the v1.1.0 bump traced each one in the code; none was exercised at runtime):
+
+- **OAuth grants written by a WebUI login — this one needs no admin action.** On 1.1.0 every sign-in to `/admin` or `/account` stores an `x:OAuthGrant` with the `Full` scope (`OAuthScope` id 4; 1.0.1 knows 0–3), because `granted_scopes()` adds it for Application clients. On 1.0.1 that grant cannot be read, `prune_oauth_grants` fails on it and the account cannot complete any OAuth sign-in while the grant exists; 1.0.1 cannot destroy it either (the destroy reads it first). Before the rollback: `x:OAuthGrant/query` + `x:OAuthGrant/set` destroy of every grant created since the swap. If the binary is already back on 1.0.1, the way out is 1.1.0 again, clean up, roll back again. Mail flow is not affected: SMTP/IMAP and tokens from the external OIDC provider do not write grants.
+- **Default roles updated with `STALWART_UPDATE_ROLE_PERMISSIONS`.** The User role gets ids 662–666 and the System Administrator role 643–666 (except 659), so users and admins both lose login on 1.0.1. Remove the new permissions with `x:Role/set`, or restore the exported roles.
+- **OAuth clients with the `urn:stalwart:oauth:scope:*` scopes, and passkeys.** Remove them.
+- **`zstd` blob compression or blob encryption keys.** Changing the setting back is not enough: 1.0.1 returns the raw bytes of such a blob without an error (corrupted mail). Run `BlobRecode` back to lz4 / unencrypted first.
+- **Encryption at rest enabled by a user on 1.1.0** (`EncryptionAtRest::Enabled`) makes that Account unreadable on 1.0.1; in general, any object saved with an enum value added after 1.0.1.
+
+The 1.1.0 boot itself writes nothing 1.0.1 cannot read (no migration, no new singleton; roles are only touched with the variable set). At every bump, compare the enums in `crates/registry/src/schema/enums.rs` between the two tags before promising a rollback.
 
 This rolls back a 1.x binary only. Going back to 0.16 is a data migration (`stalwart-migrate rollback`), not a binary swap — see `localmail-server/docs/stalwart-v1/`.
 

@@ -173,6 +173,7 @@ pub enum CacheInvalidation {
         grant_id: u64,
     },
     ActiveSieveScript(u32),
+    ExternalPublicKey(u32),
 }
 
 #[derive(Debug)]
@@ -417,21 +418,7 @@ impl PushNotification {
                     None
                 }
             }
-            PushNotification::EmailPush(_) => {
-                if types.contains_any(
-                    [
-                        DataType::EmailDelivery,
-                        DataType::Email,
-                        DataType::Mailbox,
-                        DataType::Thread,
-                    ]
-                    .into_iter(),
-                ) {
-                    Some(self.clone())
-                } else {
-                    None
-                }
-            }
+            PushNotification::EmailPush(_) => Some(self.clone()),
         }
     }
 }
@@ -462,3 +449,8 @@ impl EmailPush {
         }
     }
 }
+
+#[cfg(all(test, stalwart_tests))]
+#[rustfmt::skip]
+#[path = "../../../../stalwart-tests/unit/common/src/ipc/tests.rs"]
+mod tests;

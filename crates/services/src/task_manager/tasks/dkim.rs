@@ -192,7 +192,7 @@ async fn dkim_management(
                     DkimSignatureType::Dkim1RsaSha256 | DkimSignatureType::Dkim2RsaSha256 => {
                         test_support::TEST_RSA_KEY.to_string()
                     }
-                    DkimSignatureType::Dkim2MlDsa44Ed25519Sha512 => {
+                    DkimSignatureType::Dkim2MlDsa44 => {
                         generate_dkim_private_key(algorithm).await.unwrap().unwrap()
                     }
                 }
@@ -243,7 +243,7 @@ async fn dkim_management(
             }
             DkimSignatureType::Dkim2Ed25519Sha256
             | DkimSignatureType::Dkim2RsaSha256
-            | DkimSignatureType::Dkim2MlDsa44Ed25519Sha512 => {
+            | DkimSignatureType::Dkim2MlDsa44 => {
                 let signature = Dkim2Signature {
                     stage: DkimRotationStage::Active,
                     domain_id: task.domain_id,
@@ -261,9 +261,7 @@ async fn dkim_management(
                     DkimSignatureType::Dkim2Ed25519Sha256 => {
                         DkimSignature::Dkim2Ed25519Sha256(signature)
                     }
-                    DkimSignatureType::Dkim2MlDsa44Ed25519Sha512 => {
-                        DkimSignature::Dkim2MlDsa44Ed25519Sha512(signature)
-                    }
+                    DkimSignatureType::Dkim2MlDsa44 => DkimSignature::Dkim2MlDsa44(signature),
                     _ => DkimSignature::Dkim2RsaSha256(signature),
                 }
             }
@@ -384,7 +382,19 @@ async fn dkim_management(
     // Publish signatures
     if let Some((updater, origin)) = &dns_updater {
         for signature in publish_signatures {
-            let record = generate_dkim_dns_record(&signature.object, &domain.name).await?;
+            let record = match generate_dkim_dns_record(&signature.object, &domain.name).await {
+                Ok(record) => record,
+                Err(err) => {
+                    append_error(
+                        &mut temporary_errors,
+                        format_args!(
+                            "Failed to build DKIM record for selector {}: {err}.",
+                            signature.object.selector()
+                        ),
+                    );
+                    continue;
+                }
+            };
             let dns_update::DnsRecord::TXT(txt_value) = &record.record else {
                 return Ok(Outcome::fatal("DKIM record must be a TXT record"));
             };
@@ -473,7 +483,7 @@ async fn dkim_management(
                 }
                 DkimSignature::Dkim2Ed25519Sha256(sign)
                 | DkimSignature::Dkim2RsaSha256(sign)
-                | DkimSignature::Dkim2MlDsa44Ed25519Sha512(sign) => sign.next_transition_at = None,
+                | DkimSignature::Dkim2MlDsa44(sign) => sign.next_transition_at = None,
             }
 
             match update_signature(

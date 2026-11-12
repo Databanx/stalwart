@@ -16,10 +16,12 @@ use ahash::AHashSet;
 use compact_str::CompactString;
 use std::sync::Arc;
 use tokio_postgres::error::SqlState;
+use utils::error_chain;
 
 use self::sql::SqlStatements;
 
 pub mod blob;
+pub(crate) mod connect;
 pub mod lookup;
 pub mod main;
 pub mod pool;
@@ -56,20 +58,6 @@ fn into_error(err: tokio_postgres::error::Error) -> trc::Error {
     local_err
 }
 
-fn error_chain(err: &(dyn std::error::Error + 'static)) -> String {
-    let mut message = err.to_string();
-    let mut source = err.source();
-    while let Some(cause) = source {
-        let cause_message = cause.to_string();
-        if !cause_message.is_empty() && !message.ends_with(&cause_message) {
-            message.push_str(": ");
-            message.push_str(&cause_message);
-        }
-        source = cause.source();
-    }
-    message
-}
-
 pub(crate) const DELETE_CHUNK_SIZE: usize = 1000;
 pub(crate) const MIN_DELETE_CHUNK_SIZE: usize = 10;
 pub(crate) const ITERATE_CHUNK_SIZE: usize = 1000;
@@ -85,10 +73,16 @@ pub(crate) fn is_timeout_error(err: &tokio_postgres::Error) -> bool {
 }
 
 #[inline(always)]
-fn into_pool_error(err: deadpool_postgres::PoolError) -> trc::Error {
+fn into_pool_error(err: deadpool::managed::PoolError<trc::Error>) -> trc::Error {
     match err {
-        deadpool_postgres::PoolError::Backend(err) => into_error(err),
+        deadpool::managed::PoolError::Backend(err) => err,
         err => trc::StoreEvent::PostgresqlError.reason(error_chain(&err)),
+    }
+}
+
+impl PostgresStore {
+    pub fn is_responsive(&self) -> bool {
+        !self.conn_pool.manager().is_unresponsive()
     }
 }
 

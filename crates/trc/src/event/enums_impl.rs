@@ -66,6 +66,7 @@ impl EventType {
             b"cache.swap-miss" => EventType::Cache(CacheEvent::SwapMiss),
             b"cache.swap-write" => EventType::Cache(CacheEvent::SwapWrite),
             b"cache.swap-error" => EventType::Cache(CacheEvent::SwapError),
+            b"cache.swap-skip" => EventType::Cache(CacheEvent::SwapSkip),
             b"cache.swap-metrics" => EventType::Cache(CacheEvent::SwapMetrics),
             b"cache.swap-flush" => EventType::Cache(CacheEvent::SwapFlush),
             b"calendar.rule-expansion-error" => EventType::Calendar(CalendarEvent::RuleExpansionError),
@@ -165,6 +166,8 @@ impl EventType {
             b"dkim2.hash-mismatch" => EventType::Dkim2(Dkim2Event::HashMismatch),
             b"dkim2.recipe-error" => EventType::Dkim2(Dkim2Event::RecipeError),
             b"dkim2.signing-failed" => EventType::Dkim2(Dkim2Event::SigningFailed),
+            b"dkim2.dsn-not-aligned" => EventType::Dkim2(Dkim2Event::DsnNotAligned),
+            b"dkim2.dsn-propagated" => EventType::Dkim2(Dkim2Event::DsnPropagated),
             b"dmarc.pass" => EventType::Dmarc(DmarcEvent::Pass),
             b"dmarc.fail" => EventType::Dmarc(DmarcEvent::Fail),
             b"dmarc.perm-error" => EventType::Dmarc(DmarcEvent::PermError),
@@ -177,6 +180,17 @@ impl EventType {
             b"dns.record-lookup-failed" => EventType::Dns(DnsEvent::RecordLookupFailed),
             b"dns.record-propagated" => EventType::Dns(DnsEvent::RecordPropagated),
             b"dns.record-propagation-timeout" => EventType::Dns(DnsEvent::RecordPropagationTimeout),
+            b"encryption.encryption-skipped" => EventType::Encryption(EncryptionEvent::EncryptionSkipped),
+            b"encryption.at-rest-encrypted" => EventType::Encryption(EncryptionEvent::AtRestEncrypted),
+            b"encryption.gateway-encrypted" => EventType::Encryption(EncryptionEvent::GatewayEncrypted),
+            b"encryption.gateway-plaintext" => EventType::Encryption(EncryptionEvent::GatewayPlaintext),
+            b"encryption.gateway-bounced" => EventType::Encryption(EncryptionEvent::GatewayBounced),
+            b"encryption.key-lookup" => EventType::Encryption(EncryptionEvent::KeyLookup),
+            b"encryption.key-harvested" => EventType::Encryption(EncryptionEvent::KeyHarvested),
+            b"encryption.key-change" => EventType::Encryption(EncryptionEvent::KeyChange),
+            b"encryption.crl-fetch-failed" => EventType::Encryption(EncryptionEvent::CrlFetchFailed),
+            b"encryption.dnssec-bogus" => EventType::Encryption(EncryptionEvent::DnssecBogus),
+            b"encryption.key-unusable" => EventType::Encryption(EncryptionEvent::KeyUnusable),
             b"eval.result" => EventType::Eval(EvalEvent::Result),
             b"eval.error" => EventType::Eval(EvalEvent::Error),
             b"eval.directory-not-found" => EventType::Eval(EvalEvent::DirectoryNotFound),
@@ -594,12 +608,14 @@ impl EventType {
             b"store.elasticsearch-error" => EventType::Store(StoreEvent::ElasticsearchError),
             b"store.meilisearch-error" => EventType::Store(StoreEvent::MeilisearchError),
             b"store.redis-error" => EventType::Store(StoreEvent::RedisError),
+            b"store.keep-error" => EventType::Store(StoreEvent::KeepError),
             b"store.s3-error" => EventType::Store(StoreEvent::S3Error),
             b"store.azure-error" => EventType::Store(StoreEvent::AzureError),
             b"store.filesystem-error" => EventType::Store(StoreEvent::FilesystemError),
             b"store.pool-error" => EventType::Store(StoreEvent::PoolError),
             b"store.data-corruption" => EventType::Store(StoreEvent::DataCorruption),
             b"store.decompress-error" => EventType::Store(StoreEvent::DecompressError),
+            b"store.decrypt-error" => EventType::Store(StoreEvent::DecryptError),
             b"store.deserialize-error" => EventType::Store(StoreEvent::DeserializeError),
             b"store.not-found" => EventType::Store(StoreEvent::NotFound),
             b"store.not-configured" => EventType::Store(StoreEvent::NotConfigured),
@@ -619,6 +635,7 @@ impl EventType {
             b"store.http-store-fetch" => EventType::Store(StoreEvent::HttpStoreFetch),
             b"store.auto-expunge" => EventType::Store(StoreEvent::AutoExpunge),
             b"store.blob-store-purged" => EventType::Store(StoreEvent::BlobStorePurged),
+            b"store.blob-store-recoded" => EventType::Store(StoreEvent::BlobStoreRecoded),
             b"store.data-store-purged" => EventType::Store(StoreEvent::DataStorePurged),
             b"task-manager.task-acquired" => EventType::TaskManager(TaskManagerEvent::TaskAcquired),
             b"task-manager.task-queued" => EventType::TaskManager(TaskManagerEvent::TaskQueued),
@@ -725,6 +742,7 @@ impl EventType {
             b"cache.swap-miss" => EventType::Cache(CacheEvent::SwapMiss),
             b"cache.swap-write" => EventType::Cache(CacheEvent::SwapWrite),
             b"cache.swap-error" => EventType::Cache(CacheEvent::SwapError),
+            b"cache.swap-skip" => EventType::Cache(CacheEvent::SwapSkip),
             b"cache.swap-metrics" => EventType::Cache(CacheEvent::SwapMetrics),
             b"cache.swap-flush" => EventType::Cache(CacheEvent::SwapFlush),
             b"calendar.rule-expansion-error" => EventType::Calendar(CalendarEvent::RuleExpansionError),
@@ -824,6 +842,8 @@ impl EventType {
             b"dkim2.hash-mismatch" => EventType::Dkim2(Dkim2Event::HashMismatch),
             b"dkim2.recipe-error" => EventType::Dkim2(Dkim2Event::RecipeError),
             b"dkim2.signing-failed" => EventType::Dkim2(Dkim2Event::SigningFailed),
+            b"dkim2.dsn-not-aligned" => EventType::Dkim2(Dkim2Event::DsnNotAligned),
+            b"dkim2.dsn-propagated" => EventType::Dkim2(Dkim2Event::DsnPropagated),
             b"dmarc.pass" => EventType::Dmarc(DmarcEvent::Pass),
             b"dmarc.fail" => EventType::Dmarc(DmarcEvent::Fail),
             b"dmarc.perm-error" => EventType::Dmarc(DmarcEvent::PermError),
@@ -836,6 +856,17 @@ impl EventType {
             b"dns.record-lookup-failed" => EventType::Dns(DnsEvent::RecordLookupFailed),
             b"dns.record-propagated" => EventType::Dns(DnsEvent::RecordPropagated),
             b"dns.record-propagation-timeout" => EventType::Dns(DnsEvent::RecordPropagationTimeout),
+            b"encryption.encryption-skipped" => EventType::Encryption(EncryptionEvent::EncryptionSkipped),
+            b"encryption.at-rest-encrypted" => EventType::Encryption(EncryptionEvent::AtRestEncrypted),
+            b"encryption.gateway-encrypted" => EventType::Encryption(EncryptionEvent::GatewayEncrypted),
+            b"encryption.gateway-plaintext" => EventType::Encryption(EncryptionEvent::GatewayPlaintext),
+            b"encryption.gateway-bounced" => EventType::Encryption(EncryptionEvent::GatewayBounced),
+            b"encryption.key-lookup" => EventType::Encryption(EncryptionEvent::KeyLookup),
+            b"encryption.key-harvested" => EventType::Encryption(EncryptionEvent::KeyHarvested),
+            b"encryption.key-change" => EventType::Encryption(EncryptionEvent::KeyChange),
+            b"encryption.crl-fetch-failed" => EventType::Encryption(EncryptionEvent::CrlFetchFailed),
+            b"encryption.dnssec-bogus" => EventType::Encryption(EncryptionEvent::DnssecBogus),
+            b"encryption.key-unusable" => EventType::Encryption(EncryptionEvent::KeyUnusable),
             b"eval.result" => EventType::Eval(EvalEvent::Result),
             b"eval.error" => EventType::Eval(EvalEvent::Error),
             b"eval.directory-not-found" => EventType::Eval(EvalEvent::DirectoryNotFound),
@@ -1239,12 +1270,14 @@ impl EventType {
             b"store.elasticsearch-error" => EventType::Store(StoreEvent::ElasticsearchError),
             b"store.meilisearch-error" => EventType::Store(StoreEvent::MeilisearchError),
             b"store.redis-error" => EventType::Store(StoreEvent::RedisError),
+            b"store.keep-error" => EventType::Store(StoreEvent::KeepError),
             b"store.s3-error" => EventType::Store(StoreEvent::S3Error),
             b"store.azure-error" => EventType::Store(StoreEvent::AzureError),
             b"store.filesystem-error" => EventType::Store(StoreEvent::FilesystemError),
             b"store.pool-error" => EventType::Store(StoreEvent::PoolError),
             b"store.data-corruption" => EventType::Store(StoreEvent::DataCorruption),
             b"store.decompress-error" => EventType::Store(StoreEvent::DecompressError),
+            b"store.decrypt-error" => EventType::Store(StoreEvent::DecryptError),
             b"store.deserialize-error" => EventType::Store(StoreEvent::DeserializeError),
             b"store.not-found" => EventType::Store(StoreEvent::NotFound),
             b"store.not-configured" => EventType::Store(StoreEvent::NotConfigured),
@@ -1264,6 +1297,7 @@ impl EventType {
             b"store.http-store-fetch" => EventType::Store(StoreEvent::HttpStoreFetch),
             b"store.auto-expunge" => EventType::Store(StoreEvent::AutoExpunge),
             b"store.blob-store-purged" => EventType::Store(StoreEvent::BlobStorePurged),
+            b"store.blob-store-recoded" => EventType::Store(StoreEvent::BlobStoreRecoded),
             b"store.data-store-purged" => EventType::Store(StoreEvent::DataStorePurged),
             b"task-manager.task-acquired" => EventType::TaskManager(TaskManagerEvent::TaskAcquired),
             b"task-manager.task-queued" => EventType::TaskManager(TaskManagerEvent::TaskQueued),
@@ -1379,6 +1413,7 @@ impl EventType {
             EventType::Cache(CacheEvent::SwapMiss) => "cache.swap-miss",
             EventType::Cache(CacheEvent::SwapWrite) => "cache.swap-write",
             EventType::Cache(CacheEvent::SwapError) => "cache.swap-error",
+            EventType::Cache(CacheEvent::SwapSkip) => "cache.swap-skip",
             EventType::Cache(CacheEvent::SwapMetrics) => "cache.swap-metrics",
             EventType::Cache(CacheEvent::SwapFlush) => "cache.swap-flush",
             EventType::Calendar(CalendarEvent::RuleExpansionError) => {
@@ -1496,6 +1531,8 @@ impl EventType {
             EventType::Dkim2(Dkim2Event::HashMismatch) => "dkim2.hash-mismatch",
             EventType::Dkim2(Dkim2Event::RecipeError) => "dkim2.recipe-error",
             EventType::Dkim2(Dkim2Event::SigningFailed) => "dkim2.signing-failed",
+            EventType::Dkim2(Dkim2Event::DsnNotAligned) => "dkim2.dsn-not-aligned",
+            EventType::Dkim2(Dkim2Event::DsnPropagated) => "dkim2.dsn-propagated",
             EventType::Dmarc(DmarcEvent::Pass) => "dmarc.pass",
             EventType::Dmarc(DmarcEvent::Fail) => "dmarc.fail",
             EventType::Dmarc(DmarcEvent::PermError) => "dmarc.perm-error",
@@ -1508,6 +1545,25 @@ impl EventType {
             EventType::Dns(DnsEvent::RecordLookupFailed) => "dns.record-lookup-failed",
             EventType::Dns(DnsEvent::RecordPropagated) => "dns.record-propagated",
             EventType::Dns(DnsEvent::RecordPropagationTimeout) => "dns.record-propagation-timeout",
+            EventType::Encryption(EncryptionEvent::EncryptionSkipped) => {
+                "encryption.encryption-skipped"
+            }
+            EventType::Encryption(EncryptionEvent::AtRestEncrypted) => {
+                "encryption.at-rest-encrypted"
+            }
+            EventType::Encryption(EncryptionEvent::GatewayEncrypted) => {
+                "encryption.gateway-encrypted"
+            }
+            EventType::Encryption(EncryptionEvent::GatewayPlaintext) => {
+                "encryption.gateway-plaintext"
+            }
+            EventType::Encryption(EncryptionEvent::GatewayBounced) => "encryption.gateway-bounced",
+            EventType::Encryption(EncryptionEvent::KeyLookup) => "encryption.key-lookup",
+            EventType::Encryption(EncryptionEvent::KeyHarvested) => "encryption.key-harvested",
+            EventType::Encryption(EncryptionEvent::KeyChange) => "encryption.key-change",
+            EventType::Encryption(EncryptionEvent::CrlFetchFailed) => "encryption.crl-fetch-failed",
+            EventType::Encryption(EncryptionEvent::DnssecBogus) => "encryption.dnssec-bogus",
+            EventType::Encryption(EncryptionEvent::KeyUnusable) => "encryption.key-unusable",
             EventType::Eval(EvalEvent::Result) => "eval.result",
             EventType::Eval(EvalEvent::Error) => "eval.error",
             EventType::Eval(EvalEvent::DirectoryNotFound) => "eval.directory-not-found",
@@ -2063,12 +2119,14 @@ impl EventType {
             EventType::Store(StoreEvent::ElasticsearchError) => "store.elasticsearch-error",
             EventType::Store(StoreEvent::MeilisearchError) => "store.meilisearch-error",
             EventType::Store(StoreEvent::RedisError) => "store.redis-error",
+            EventType::Store(StoreEvent::KeepError) => "store.keep-error",
             EventType::Store(StoreEvent::S3Error) => "store.s3-error",
             EventType::Store(StoreEvent::AzureError) => "store.azure-error",
             EventType::Store(StoreEvent::FilesystemError) => "store.filesystem-error",
             EventType::Store(StoreEvent::PoolError) => "store.pool-error",
             EventType::Store(StoreEvent::DataCorruption) => "store.data-corruption",
             EventType::Store(StoreEvent::DecompressError) => "store.decompress-error",
+            EventType::Store(StoreEvent::DecryptError) => "store.decrypt-error",
             EventType::Store(StoreEvent::DeserializeError) => "store.deserialize-error",
             EventType::Store(StoreEvent::NotFound) => "store.not-found",
             EventType::Store(StoreEvent::NotConfigured) => "store.not-configured",
@@ -2088,6 +2146,7 @@ impl EventType {
             EventType::Store(StoreEvent::HttpStoreFetch) => "store.http-store-fetch",
             EventType::Store(StoreEvent::AutoExpunge) => "store.auto-expunge",
             EventType::Store(StoreEvent::BlobStorePurged) => "store.blob-store-purged",
+            EventType::Store(StoreEvent::BlobStoreRecoded) => "store.blob-store-recoded",
             EventType::Store(StoreEvent::DataStorePurged) => "store.data-store-purged",
             EventType::TaskManager(TaskManagerEvent::TaskAcquired) => "task-manager.task-acquired",
             EventType::TaskManager(TaskManagerEvent::TaskQueued) => "task-manager.task-queued",
@@ -2234,6 +2293,7 @@ impl EventType {
             EventType::Cache(CacheEvent::SwapMiss) => 595,
             EventType::Cache(CacheEvent::SwapWrite) => 596,
             EventType::Cache(CacheEvent::SwapError) => 597,
+            EventType::Cache(CacheEvent::SwapSkip) => 671,
             EventType::Cache(CacheEvent::SwapMetrics) => 598,
             EventType::Cache(CacheEvent::SwapFlush) => 599,
             EventType::Calendar(CalendarEvent::RuleExpansionError) => 559,
@@ -2333,6 +2393,8 @@ impl EventType {
             EventType::Dkim2(Dkim2Event::HashMismatch) => 641,
             EventType::Dkim2(Dkim2Event::RecipeError) => 642,
             EventType::Dkim2(Dkim2Event::SigningFailed) => 650,
+            EventType::Dkim2(Dkim2Event::DsnNotAligned) => 666,
+            EventType::Dkim2(Dkim2Event::DsnPropagated) => 667,
             EventType::Dmarc(DmarcEvent::Pass) => 118,
             EventType::Dmarc(DmarcEvent::Fail) => 116,
             EventType::Dmarc(DmarcEvent::PermError) => 119,
@@ -2345,6 +2407,17 @@ impl EventType {
             EventType::Dns(DnsEvent::RecordLookupFailed) => 11,
             EventType::Dns(DnsEvent::RecordPropagated) => 13,
             EventType::Dns(DnsEvent::RecordPropagationTimeout) => 14,
+            EventType::Encryption(EncryptionEvent::EncryptionSkipped) => 655,
+            EventType::Encryption(EncryptionEvent::AtRestEncrypted) => 658,
+            EventType::Encryption(EncryptionEvent::GatewayEncrypted) => 656,
+            EventType::Encryption(EncryptionEvent::GatewayPlaintext) => 657,
+            EventType::Encryption(EncryptionEvent::GatewayBounced) => 659,
+            EventType::Encryption(EncryptionEvent::KeyLookup) => 660,
+            EventType::Encryption(EncryptionEvent::KeyHarvested) => 661,
+            EventType::Encryption(EncryptionEvent::KeyChange) => 662,
+            EventType::Encryption(EncryptionEvent::CrlFetchFailed) => 663,
+            EventType::Encryption(EncryptionEvent::DnssecBogus) => 664,
+            EventType::Encryption(EncryptionEvent::KeyUnusable) => 665,
             EventType::Eval(EvalEvent::Result) => 123,
             EventType::Eval(EvalEvent::Error) => 122,
             EventType::Eval(EvalEvent::DirectoryNotFound) => 121,
@@ -2788,12 +2861,14 @@ impl EventType {
             EventType::Store(StoreEvent::ElasticsearchError) => 499,
             EventType::Store(StoreEvent::MeilisearchError) => 573,
             EventType::Store(StoreEvent::RedisError) => 511,
+            EventType::Store(StoreEvent::KeepError) => 670,
             EventType::Store(StoreEvent::S3Error) => 513,
             EventType::Store(StoreEvent::AzureError) => 542,
             EventType::Store(StoreEvent::FilesystemError) => 500,
             EventType::Store(StoreEvent::PoolError) => 509,
             EventType::Store(StoreEvent::DataCorruption) => 494,
             EventType::Store(StoreEvent::DecompressError) => 497,
+            EventType::Store(StoreEvent::DecryptError) => 668,
             EventType::Store(StoreEvent::DeserializeError) => 498,
             EventType::Store(StoreEvent::NotFound) => 507,
             EventType::Store(StoreEvent::NotConfigured) => 506,
@@ -2813,6 +2888,7 @@ impl EventType {
             EventType::Store(StoreEvent::HttpStoreFetch) => 475,
             EventType::Store(StoreEvent::AutoExpunge) => 348,
             EventType::Store(StoreEvent::BlobStorePurged) => 353,
+            EventType::Store(StoreEvent::BlobStoreRecoded) => 669,
             EventType::Store(StoreEvent::DataStorePurged) => 352,
             EventType::TaskManager(TaskManagerEvent::TaskAcquired) => 561,
             EventType::TaskManager(TaskManagerEvent::TaskQueued) => 133,
@@ -2941,6 +3017,7 @@ impl EventType {
             595 => Some(EventType::Cache(CacheEvent::SwapMiss)),
             596 => Some(EventType::Cache(CacheEvent::SwapWrite)),
             597 => Some(EventType::Cache(CacheEvent::SwapError)),
+            671 => Some(EventType::Cache(CacheEvent::SwapSkip)),
             598 => Some(EventType::Cache(CacheEvent::SwapMetrics)),
             599 => Some(EventType::Cache(CacheEvent::SwapFlush)),
             559 => Some(EventType::Calendar(CalendarEvent::RuleExpansionError)),
@@ -3040,6 +3117,8 @@ impl EventType {
             641 => Some(EventType::Dkim2(Dkim2Event::HashMismatch)),
             642 => Some(EventType::Dkim2(Dkim2Event::RecipeError)),
             650 => Some(EventType::Dkim2(Dkim2Event::SigningFailed)),
+            666 => Some(EventType::Dkim2(Dkim2Event::DsnNotAligned)),
+            667 => Some(EventType::Dkim2(Dkim2Event::DsnPropagated)),
             118 => Some(EventType::Dmarc(DmarcEvent::Pass)),
             116 => Some(EventType::Dmarc(DmarcEvent::Fail)),
             119 => Some(EventType::Dmarc(DmarcEvent::PermError)),
@@ -3052,6 +3131,17 @@ impl EventType {
             11 => Some(EventType::Dns(DnsEvent::RecordLookupFailed)),
             13 => Some(EventType::Dns(DnsEvent::RecordPropagated)),
             14 => Some(EventType::Dns(DnsEvent::RecordPropagationTimeout)),
+            655 => Some(EventType::Encryption(EncryptionEvent::EncryptionSkipped)),
+            658 => Some(EventType::Encryption(EncryptionEvent::AtRestEncrypted)),
+            656 => Some(EventType::Encryption(EncryptionEvent::GatewayEncrypted)),
+            657 => Some(EventType::Encryption(EncryptionEvent::GatewayPlaintext)),
+            659 => Some(EventType::Encryption(EncryptionEvent::GatewayBounced)),
+            660 => Some(EventType::Encryption(EncryptionEvent::KeyLookup)),
+            661 => Some(EventType::Encryption(EncryptionEvent::KeyHarvested)),
+            662 => Some(EventType::Encryption(EncryptionEvent::KeyChange)),
+            663 => Some(EventType::Encryption(EncryptionEvent::CrlFetchFailed)),
+            664 => Some(EventType::Encryption(EncryptionEvent::DnssecBogus)),
+            665 => Some(EventType::Encryption(EncryptionEvent::KeyUnusable)),
             123 => Some(EventType::Eval(EvalEvent::Result)),
             122 => Some(EventType::Eval(EvalEvent::Error)),
             121 => Some(EventType::Eval(EvalEvent::DirectoryNotFound)),
@@ -3533,12 +3623,14 @@ impl EventType {
             499 => Some(EventType::Store(StoreEvent::ElasticsearchError)),
             573 => Some(EventType::Store(StoreEvent::MeilisearchError)),
             511 => Some(EventType::Store(StoreEvent::RedisError)),
+            670 => Some(EventType::Store(StoreEvent::KeepError)),
             513 => Some(EventType::Store(StoreEvent::S3Error)),
             542 => Some(EventType::Store(StoreEvent::AzureError)),
             500 => Some(EventType::Store(StoreEvent::FilesystemError)),
             509 => Some(EventType::Store(StoreEvent::PoolError)),
             494 => Some(EventType::Store(StoreEvent::DataCorruption)),
             497 => Some(EventType::Store(StoreEvent::DecompressError)),
+            668 => Some(EventType::Store(StoreEvent::DecryptError)),
             498 => Some(EventType::Store(StoreEvent::DeserializeError)),
             507 => Some(EventType::Store(StoreEvent::NotFound)),
             506 => Some(EventType::Store(StoreEvent::NotConfigured)),
@@ -3558,6 +3650,7 @@ impl EventType {
             475 => Some(EventType::Store(StoreEvent::HttpStoreFetch)),
             348 => Some(EventType::Store(StoreEvent::AutoExpunge)),
             353 => Some(EventType::Store(StoreEvent::BlobStorePurged)),
+            669 => Some(EventType::Store(StoreEvent::BlobStoreRecoded)),
             352 => Some(EventType::Store(StoreEvent::DataStorePurged)),
             561 => Some(EventType::TaskManager(TaskManagerEvent::TaskAcquired)),
             133 => Some(EventType::TaskManager(TaskManagerEvent::TaskQueued)),
@@ -3673,12 +3766,14 @@ impl EventType {
             EventType::Store(StoreEvent::ElasticsearchError) => Level::Error,
             EventType::Store(StoreEvent::MeilisearchError) => Level::Error,
             EventType::Store(StoreEvent::RedisError) => Level::Error,
+            EventType::Store(StoreEvent::KeepError) => Level::Error,
             EventType::Store(StoreEvent::S3Error) => Level::Error,
             EventType::Store(StoreEvent::AzureError) => Level::Error,
             EventType::Store(StoreEvent::FilesystemError) => Level::Error,
             EventType::Store(StoreEvent::PoolError) => Level::Error,
             EventType::Store(StoreEvent::DataCorruption) => Level::Error,
             EventType::Store(StoreEvent::DecompressError) => Level::Error,
+            EventType::Store(StoreEvent::DecryptError) => Level::Error,
             EventType::Store(StoreEvent::DeserializeError) => Level::Error,
             EventType::Store(StoreEvent::NotConfigured) => Level::Error,
             EventType::Store(StoreEvent::NotSupported) => Level::Error,
@@ -3704,6 +3799,7 @@ impl EventType {
             // SPDX-SnippetEnd
             EventType::Auth(AuthEvent::Success) => Level::Info,
             EventType::Auth(AuthEvent::ClientRegistration) => Level::Info,
+            EventType::Cache(CacheEvent::SwapSkip) => Level::Info,
             EventType::Calendar(CalendarEvent::AlarmSent) => Level::Info,
             EventType::Calendar(CalendarEvent::ItipMessageSent) => Level::Info,
             EventType::Calendar(CalendarEvent::ItipMessageReceived) => Level::Info,
@@ -3746,8 +3842,15 @@ impl EventType {
             EventType::Dkim(DkimEvent::SignatureRetiring) => Level::Info,
             EventType::Dkim(DkimEvent::SignatureRetired) => Level::Info,
             EventType::Dkim(DkimEvent::SignatureDeleted) => Level::Info,
+            EventType::Dkim2(Dkim2Event::DsnNotAligned) => Level::Info,
+            EventType::Dkim2(Dkim2Event::DsnPropagated) => Level::Info,
             EventType::Dns(DnsEvent::RecordCreated) => Level::Info,
             EventType::Dns(DnsEvent::RecordPropagated) => Level::Info,
+            EventType::Encryption(EncryptionEvent::EncryptionSkipped) => Level::Info,
+            EventType::Encryption(EncryptionEvent::AtRestEncrypted) => Level::Info,
+            EventType::Encryption(EncryptionEvent::GatewayEncrypted) => Level::Info,
+            EventType::Encryption(EncryptionEvent::GatewayPlaintext) => Level::Info,
+            EventType::Encryption(EncryptionEvent::KeyHarvested) => Level::Info,
             EventType::IncomingReport(IncomingReportEvent::DmarcReport) => Level::Info,
             EventType::IncomingReport(IncomingReportEvent::TlsReport) => Level::Info,
             EventType::IncomingReport(IncomingReportEvent::AbuseReport) => Level::Info,
@@ -3901,6 +4004,7 @@ impl EventType {
             EventType::Spam(SpamEvent::ModelNotFound) => Level::Info,
             EventType::Spam(SpamEvent::RulesUpdated) => Level::Info,
             EventType::Store(StoreEvent::BlobStorePurged) => Level::Info,
+            EventType::Store(StoreEvent::BlobStoreRecoded) => Level::Info,
             EventType::Store(StoreEvent::DataStorePurged) => Level::Info,
             EventType::TaskManager(TaskManagerEvent::TaskQueued) => Level::Info,
             EventType::TaskManager(TaskManagerEvent::TaskScheduled) => Level::Info,
@@ -3929,6 +4033,7 @@ impl EventType {
             EventType::Cluster(ClusterEvent::MessageSkipped) => Level::Trace,
             EventType::Delivery(DeliveryEvent::RawInput) => Level::Trace,
             EventType::Delivery(DeliveryEvent::RawOutput) => Level::Trace,
+            EventType::Encryption(EncryptionEvent::KeyUnusable) => Level::Trace,
             EventType::Eval(EvalEvent::Result) => Level::Trace,
             EventType::Http(HttpEvent::RequestBody) => Level::Trace,
             EventType::Http(HttpEvent::ResponseBody) => Level::Trace,
@@ -3978,6 +4083,10 @@ impl EventType {
             EventType::Dkim2(Dkim2Event::SigningFailed) => Level::Warn,
             EventType::Dns(DnsEvent::RecordCreationFailed) => Level::Warn,
             EventType::Dns(DnsEvent::RecordPropagationTimeout) => Level::Warn,
+            EventType::Encryption(EncryptionEvent::GatewayBounced) => Level::Warn,
+            EventType::Encryption(EncryptionEvent::KeyChange) => Level::Warn,
+            EventType::Encryption(EncryptionEvent::CrlFetchFailed) => Level::Warn,
+            EventType::Encryption(EncryptionEvent::DnssecBogus) => Level::Warn,
             EventType::Eval(EvalEvent::DirectoryNotFound) => Level::Warn,
             EventType::Http(HttpEvent::XForwardedMissing) => Level::Warn,
             EventType::Http(HttpEvent::XForwardedInvalid) => Level::Warn,
@@ -4099,6 +4208,7 @@ impl EventType {
             EventType::Cache(CacheEvent::SwapMiss) => "Cache snapshot unavailable",
             EventType::Cache(CacheEvent::SwapWrite) => "Cache snapshot written",
             EventType::Cache(CacheEvent::SwapError) => "Cache swap tier error",
+            EventType::Cache(CacheEvent::SwapSkip) => "Cache snapshot skipped",
             EventType::Cache(CacheEvent::SwapMetrics) => "Cache swap metrics",
             EventType::Cache(CacheEvent::SwapFlush) => "Cache swap flushed",
             EventType::Calendar(CalendarEvent::RuleExpansionError) => {
@@ -4222,6 +4332,8 @@ impl EventType {
             EventType::Dkim2(Dkim2Event::HashMismatch) => "DKIM2 hash mismatch",
             EventType::Dkim2(Dkim2Event::RecipeError) => "DKIM2 recipe error",
             EventType::Dkim2(Dkim2Event::SigningFailed) => "DKIM2 signing failed",
+            EventType::Dkim2(Dkim2Event::DsnNotAligned) => "DKIM2 DSN signer not aligned",
+            EventType::Dkim2(Dkim2Event::DsnPropagated) => "DKIM2 DSN propagated",
             EventType::Dmarc(DmarcEvent::Pass) => "DMARC check passed",
             EventType::Dmarc(DmarcEvent::Fail) => "DMARC check failed",
             EventType::Dmarc(DmarcEvent::PermError) => "DMARC permanent error",
@@ -4234,6 +4346,17 @@ impl EventType {
             EventType::Dns(DnsEvent::RecordLookupFailed) => "DNS record lookup failed",
             EventType::Dns(DnsEvent::RecordPropagated) => "DNS record propagated",
             EventType::Dns(DnsEvent::RecordPropagationTimeout) => "DNS record propagation timeout",
+            EventType::Encryption(EncryptionEvent::EncryptionSkipped) => "Encryption skipped",
+            EventType::Encryption(EncryptionEvent::AtRestEncrypted) => "Message encrypted at rest",
+            EventType::Encryption(EncryptionEvent::GatewayEncrypted) => "Gateway encrypted message",
+            EventType::Encryption(EncryptionEvent::GatewayPlaintext) => "Gateway sent plaintext",
+            EventType::Encryption(EncryptionEvent::GatewayBounced) => "Gateway bounced message",
+            EventType::Encryption(EncryptionEvent::KeyLookup) => "Key lookup",
+            EventType::Encryption(EncryptionEvent::KeyHarvested) => "Key harvested",
+            EventType::Encryption(EncryptionEvent::KeyChange) => "Key change pending approval",
+            EventType::Encryption(EncryptionEvent::CrlFetchFailed) => "CRL download failed",
+            EventType::Encryption(EncryptionEvent::DnssecBogus) => "DNSSEC validation failed",
+            EventType::Encryption(EncryptionEvent::KeyUnusable) => "Encryption key unusable",
             EventType::Eval(EvalEvent::Result) => "Expression evaluation result",
             EventType::Eval(EvalEvent::Error) => "Expression evaluation error",
             EventType::Eval(EvalEvent::DirectoryNotFound) => {
@@ -4799,12 +4922,14 @@ impl EventType {
             EventType::Store(StoreEvent::ElasticsearchError) => "ElasticSearch error",
             EventType::Store(StoreEvent::MeilisearchError) => "Meilisearch error",
             EventType::Store(StoreEvent::RedisError) => "Redis error",
+            EventType::Store(StoreEvent::KeepError) => "Stalwart Keep error",
             EventType::Store(StoreEvent::S3Error) => "S3 error",
             EventType::Store(StoreEvent::AzureError) => "Azure error",
             EventType::Store(StoreEvent::FilesystemError) => "Filesystem error",
             EventType::Store(StoreEvent::PoolError) => "Connection pool error",
             EventType::Store(StoreEvent::DataCorruption) => "Data corruption detected",
             EventType::Store(StoreEvent::DecompressError) => "Decompression error",
+            EventType::Store(StoreEvent::DecryptError) => "Decryption error",
             EventType::Store(StoreEvent::DeserializeError) => "Deserialization error",
             EventType::Store(StoreEvent::NotFound) => "Record not found in database",
             EventType::Store(StoreEvent::NotConfigured) => "Store not configured",
@@ -4824,6 +4949,7 @@ impl EventType {
             EventType::Store(StoreEvent::HttpStoreFetch) => "HTTP store updated",
             EventType::Store(StoreEvent::AutoExpunge) => "Auto-expunge executed",
             EventType::Store(StoreEvent::BlobStorePurged) => "Blob store purge completed",
+            EventType::Store(StoreEvent::BlobStoreRecoded) => "Blob store shard recoded",
             EventType::Store(StoreEvent::DataStorePurged) => "Data store purge completed",
             EventType::TaskManager(TaskManagerEvent::TaskAcquired) => "Task acquired from queue",
             EventType::TaskManager(TaskManagerEvent::TaskQueued) => "Task queued for processing",
@@ -4930,6 +5056,7 @@ impl EventType {
             EventType::Cache(CacheEvent::SwapMiss) => "Cache snapshot unavailable",
             EventType::Cache(CacheEvent::SwapWrite) => "Cache snapshot written",
             EventType::Cache(CacheEvent::SwapError) => "Cache swap error",
+            EventType::Cache(CacheEvent::SwapSkip) => "Cache snapshot skipped",
             EventType::Cache(CacheEvent::SwapMetrics) => "Cache swap metrics",
             EventType::Cache(CacheEvent::SwapFlush) => "Cache swap flushed",
             EventType::Imap(ImapEvent::ConnectionStart) => "IMAP error",
@@ -5186,12 +5313,14 @@ impl EventType {
             EventType::Store(StoreEvent::ElasticsearchError) => "ElasticSearch error",
             EventType::Store(StoreEvent::MeilisearchError) => "Store error",
             EventType::Store(StoreEvent::RedisError) => "Redis error",
+            EventType::Store(StoreEvent::KeepError) => "Stalwart Keep error",
             EventType::Store(StoreEvent::S3Error) => "S3 error",
             EventType::Store(StoreEvent::AzureError) => "Azure error",
             EventType::Store(StoreEvent::FilesystemError) => "Filesystem error",
             EventType::Store(StoreEvent::PoolError) => "Connection pool error",
             EventType::Store(StoreEvent::DataCorruption) => "Data corruption",
             EventType::Store(StoreEvent::DecompressError) => "Decompression error",
+            EventType::Store(StoreEvent::DecryptError) => "Decryption error",
             EventType::Store(StoreEvent::DeserializeError) => "Deserialization error",
             EventType::Store(StoreEvent::NotFound) => "Not found",
             EventType::Store(StoreEvent::NotConfigured) => "Not configured",
@@ -5365,6 +5494,8 @@ impl EventType {
             EventType::Dkim2(Dkim2Event::HashMismatch) => "stalwart.dkim2.hash_mismatch",
             EventType::Dkim2(Dkim2Event::RecipeError) => "stalwart.dkim2.recipe_error",
             EventType::Dkim2(Dkim2Event::SigningFailed) => "stalwart.dkim2.signing_failed",
+            EventType::Dkim2(Dkim2Event::DsnNotAligned) => "stalwart.dkim2.dsn_not_aligned",
+            EventType::Dkim2(Dkim2Event::DsnPropagated) => "stalwart.dkim2.dsn_propagated",
             EventType::Dmarc(DmarcEvent::Pass) => "stalwart.dmarc.pass",
             EventType::Dmarc(DmarcEvent::Fail) => "stalwart.dmarc.fail",
             EventType::Dmarc(DmarcEvent::PermError) => "stalwart.dmarc.perm_error",
@@ -5375,6 +5506,32 @@ impl EventType {
             EventType::Dns(DnsEvent::RecordLookupFailed) => "stalwart.dns.record_lookup_failed",
             EventType::Dns(DnsEvent::RecordPropagationTimeout) => {
                 "stalwart.dns.record_propagation_timeout"
+            }
+            EventType::Encryption(EncryptionEvent::EncryptionSkipped) => {
+                "stalwart.encryption.encryption_skipped"
+            }
+            EventType::Encryption(EncryptionEvent::AtRestEncrypted) => {
+                "stalwart.encryption.at_rest_encrypted"
+            }
+            EventType::Encryption(EncryptionEvent::GatewayEncrypted) => {
+                "stalwart.encryption.gateway_encrypted"
+            }
+            EventType::Encryption(EncryptionEvent::GatewayPlaintext) => {
+                "stalwart.encryption.gateway_plaintext"
+            }
+            EventType::Encryption(EncryptionEvent::GatewayBounced) => {
+                "stalwart.encryption.gateway_bounced"
+            }
+            EventType::Encryption(EncryptionEvent::KeyLookup) => "stalwart.encryption.key_lookup",
+            EventType::Encryption(EncryptionEvent::KeyHarvested) => {
+                "stalwart.encryption.key_harvested"
+            }
+            EventType::Encryption(EncryptionEvent::KeyChange) => "stalwart.encryption.key_change",
+            EventType::Encryption(EncryptionEvent::CrlFetchFailed) => {
+                "stalwart.encryption.crl_fetch_failed"
+            }
+            EventType::Encryption(EncryptionEvent::DnssecBogus) => {
+                "stalwart.encryption.dnssec_bogus"
             }
             EventType::Eval(EvalEvent::Error) => "stalwart.eval.error",
             EventType::Eval(EvalEvent::DirectoryNotFound) => "stalwart.eval.directory_not_found",
@@ -5720,6 +5877,7 @@ impl EventType {
             EventType::Store(StoreEvent::PoolError) => "stalwart.store.pool_error",
             EventType::Store(StoreEvent::DataCorruption) => "stalwart.store.data_corruption",
             EventType::Store(StoreEvent::DecompressError) => "stalwart.store.decompress_error",
+            EventType::Store(StoreEvent::DecryptError) => "stalwart.store.decrypt_error",
             EventType::Store(StoreEvent::DeserializeError) => "stalwart.store.deserialize_error",
             EventType::Store(StoreEvent::NotFound) => "stalwart.store.not_found",
             EventType::Store(StoreEvent::NotConfigured) => "stalwart.store.not_configured",
@@ -5971,6 +6129,8 @@ impl EventType {
             EventType::Dkim2(Dkim2Event::HashMismatch) => "stalwart_dkim2_hash_mismatch_total",
             EventType::Dkim2(Dkim2Event::RecipeError) => "stalwart_dkim2_recipe_error_total",
             EventType::Dkim2(Dkim2Event::SigningFailed) => "stalwart_dkim2_signing_failed_total",
+            EventType::Dkim2(Dkim2Event::DsnNotAligned) => "stalwart_dkim2_dsn_not_aligned_total",
+            EventType::Dkim2(Dkim2Event::DsnPropagated) => "stalwart_dkim2_dsn_propagated_total",
             EventType::Dmarc(DmarcEvent::Pass) => "stalwart_dmarc_pass_total",
             EventType::Dmarc(DmarcEvent::Fail) => "stalwart_dmarc_fail_total",
             EventType::Dmarc(DmarcEvent::PermError) => "stalwart_dmarc_perm_error_total",
@@ -5987,6 +6147,36 @@ impl EventType {
             }
             EventType::Dns(DnsEvent::RecordPropagationTimeout) => {
                 "stalwart_dns_record_propagation_timeout_total"
+            }
+            EventType::Encryption(EncryptionEvent::EncryptionSkipped) => {
+                "stalwart_encryption_encryption_skipped_total"
+            }
+            EventType::Encryption(EncryptionEvent::AtRestEncrypted) => {
+                "stalwart_encryption_at_rest_encrypted_total"
+            }
+            EventType::Encryption(EncryptionEvent::GatewayEncrypted) => {
+                "stalwart_encryption_gateway_encrypted_total"
+            }
+            EventType::Encryption(EncryptionEvent::GatewayPlaintext) => {
+                "stalwart_encryption_gateway_plaintext_total"
+            }
+            EventType::Encryption(EncryptionEvent::GatewayBounced) => {
+                "stalwart_encryption_gateway_bounced_total"
+            }
+            EventType::Encryption(EncryptionEvent::KeyLookup) => {
+                "stalwart_encryption_key_lookup_total"
+            }
+            EventType::Encryption(EncryptionEvent::KeyHarvested) => {
+                "stalwart_encryption_key_harvested_total"
+            }
+            EventType::Encryption(EncryptionEvent::KeyChange) => {
+                "stalwart_encryption_key_change_total"
+            }
+            EventType::Encryption(EncryptionEvent::CrlFetchFailed) => {
+                "stalwart_encryption_crl_fetch_failed_total"
+            }
+            EventType::Encryption(EncryptionEvent::DnssecBogus) => {
+                "stalwart_encryption_dnssec_bogus_total"
             }
             EventType::Eval(EvalEvent::Error) => "stalwart_eval_error_total",
             EventType::Eval(EvalEvent::DirectoryNotFound) => {
@@ -6406,6 +6596,7 @@ impl EventType {
             EventType::Store(StoreEvent::DecompressError) => {
                 "stalwart_store_decompress_error_total"
             }
+            EventType::Store(StoreEvent::DecryptError) => "stalwart_store_decrypt_error_total",
             EventType::Store(StoreEvent::DeserializeError) => {
                 "stalwart_store_deserialize_error_total"
             }
@@ -6539,6 +6730,7 @@ impl EventType {
             EventType::Cache(CacheEvent::SwapMiss),
             EventType::Cache(CacheEvent::SwapWrite),
             EventType::Cache(CacheEvent::SwapError),
+            EventType::Cache(CacheEvent::SwapSkip),
             EventType::Cache(CacheEvent::SwapMetrics),
             EventType::Cache(CacheEvent::SwapFlush),
             EventType::Calendar(CalendarEvent::RuleExpansionError),
@@ -6638,6 +6830,8 @@ impl EventType {
             EventType::Dkim2(Dkim2Event::HashMismatch),
             EventType::Dkim2(Dkim2Event::RecipeError),
             EventType::Dkim2(Dkim2Event::SigningFailed),
+            EventType::Dkim2(Dkim2Event::DsnNotAligned),
+            EventType::Dkim2(Dkim2Event::DsnPropagated),
             EventType::Dmarc(DmarcEvent::Pass),
             EventType::Dmarc(DmarcEvent::Fail),
             EventType::Dmarc(DmarcEvent::PermError),
@@ -6650,6 +6844,17 @@ impl EventType {
             EventType::Dns(DnsEvent::RecordLookupFailed),
             EventType::Dns(DnsEvent::RecordPropagated),
             EventType::Dns(DnsEvent::RecordPropagationTimeout),
+            EventType::Encryption(EncryptionEvent::EncryptionSkipped),
+            EventType::Encryption(EncryptionEvent::AtRestEncrypted),
+            EventType::Encryption(EncryptionEvent::GatewayEncrypted),
+            EventType::Encryption(EncryptionEvent::GatewayPlaintext),
+            EventType::Encryption(EncryptionEvent::GatewayBounced),
+            EventType::Encryption(EncryptionEvent::KeyLookup),
+            EventType::Encryption(EncryptionEvent::KeyHarvested),
+            EventType::Encryption(EncryptionEvent::KeyChange),
+            EventType::Encryption(EncryptionEvent::CrlFetchFailed),
+            EventType::Encryption(EncryptionEvent::DnssecBogus),
+            EventType::Encryption(EncryptionEvent::KeyUnusable),
             EventType::Eval(EvalEvent::Result),
             EventType::Eval(EvalEvent::Error),
             EventType::Eval(EvalEvent::DirectoryNotFound),
@@ -7093,12 +7298,14 @@ impl EventType {
             EventType::Store(StoreEvent::ElasticsearchError),
             EventType::Store(StoreEvent::MeilisearchError),
             EventType::Store(StoreEvent::RedisError),
+            EventType::Store(StoreEvent::KeepError),
             EventType::Store(StoreEvent::S3Error),
             EventType::Store(StoreEvent::AzureError),
             EventType::Store(StoreEvent::FilesystemError),
             EventType::Store(StoreEvent::PoolError),
             EventType::Store(StoreEvent::DataCorruption),
             EventType::Store(StoreEvent::DecompressError),
+            EventType::Store(StoreEvent::DecryptError),
             EventType::Store(StoreEvent::DeserializeError),
             EventType::Store(StoreEvent::NotFound),
             EventType::Store(StoreEvent::NotConfigured),
@@ -7118,6 +7325,7 @@ impl EventType {
             EventType::Store(StoreEvent::HttpStoreFetch),
             EventType::Store(StoreEvent::AutoExpunge),
             EventType::Store(StoreEvent::BlobStorePurged),
+            EventType::Store(StoreEvent::BlobStoreRecoded),
             EventType::Store(StoreEvent::DataStorePurged),
             EventType::TaskManager(TaskManagerEvent::TaskAcquired),
             EventType::TaskManager(TaskManagerEvent::TaskQueued),
@@ -7297,6 +7505,8 @@ impl MetricType {
             b"dkim2.hash-mismatch" => MetricType::Dkim2HashMismatch,
             b"dkim2.recipe-error" => MetricType::Dkim2RecipeError,
             b"dkim2.signing-failed" => MetricType::Dkim2SigningFailed,
+            b"dkim2.dsn-not-aligned" => MetricType::Dkim2DsnNotAligned,
+            b"dkim2.dsn-propagated" => MetricType::Dkim2DsnPropagated,
             b"dmarc.pass" => MetricType::DmarcPass,
             b"dmarc.fail" => MetricType::DmarcFail,
             b"dmarc.perm-error" => MetricType::DmarcPermError,
@@ -7308,6 +7518,17 @@ impl MetricType {
             b"dns.record-lookup-failed" => MetricType::DnsRecordLookupFailed,
             b"dns.record-propagation-timeout" => MetricType::DnsRecordPropagationTimeout,
             b"domain.count" => MetricType::DomainCount,
+            b"encryption.key-lookup-time" => MetricType::EncryptionKeyLookupTime,
+            b"encryption.encryption-skipped" => MetricType::EncryptionEncryptionSkipped,
+            b"encryption.at-rest-encrypted" => MetricType::EncryptionAtRestEncrypted,
+            b"encryption.gateway-encrypted" => MetricType::EncryptionGatewayEncrypted,
+            b"encryption.gateway-plaintext" => MetricType::EncryptionGatewayPlaintext,
+            b"encryption.gateway-bounced" => MetricType::EncryptionGatewayBounced,
+            b"encryption.key-lookup" => MetricType::EncryptionKeyLookup,
+            b"encryption.key-harvested" => MetricType::EncryptionKeyHarvested,
+            b"encryption.key-change" => MetricType::EncryptionKeyChange,
+            b"encryption.crl-fetch-failed" => MetricType::EncryptionCrlFetchFailed,
+            b"encryption.dnssec-bogus" => MetricType::EncryptionDnssecBogus,
             b"eval.error" => MetricType::EvalError,
             b"eval.directory-not-found" => MetricType::EvalDirectoryNotFound,
             b"eval.store-not-found" => MetricType::EvalStoreNotFound,
@@ -7549,6 +7770,7 @@ impl MetricType {
             b"store.pool-error" => MetricType::StorePoolError,
             b"store.data-corruption" => MetricType::StoreDataCorruption,
             b"store.decompress-error" => MetricType::StoreDecompressError,
+            b"store.decrypt-error" => MetricType::StoreDecryptError,
             b"store.deserialize-error" => MetricType::StoreDeserializeError,
             b"store.not-found" => MetricType::StoreNotFound,
             b"store.not-configured" => MetricType::StoreNotConfigured,
@@ -7684,6 +7906,8 @@ impl MetricType {
             b"dkim2.hash-mismatch" => MetricType::Dkim2HashMismatch,
             b"dkim2.recipe-error" => MetricType::Dkim2RecipeError,
             b"dkim2.signing-failed" => MetricType::Dkim2SigningFailed,
+            b"dkim2.dsn-not-aligned" => MetricType::Dkim2DsnNotAligned,
+            b"dkim2.dsn-propagated" => MetricType::Dkim2DsnPropagated,
             b"dmarc.pass" => MetricType::DmarcPass,
             b"dmarc.fail" => MetricType::DmarcFail,
             b"dmarc.perm-error" => MetricType::DmarcPermError,
@@ -7695,6 +7919,17 @@ impl MetricType {
             b"dns.record-lookup-failed" => MetricType::DnsRecordLookupFailed,
             b"dns.record-propagation-timeout" => MetricType::DnsRecordPropagationTimeout,
             b"domain.count" => MetricType::DomainCount,
+            b"encryption.key-lookup-time" => MetricType::EncryptionKeyLookupTime,
+            b"encryption.encryption-skipped" => MetricType::EncryptionEncryptionSkipped,
+            b"encryption.at-rest-encrypted" => MetricType::EncryptionAtRestEncrypted,
+            b"encryption.gateway-encrypted" => MetricType::EncryptionGatewayEncrypted,
+            b"encryption.gateway-plaintext" => MetricType::EncryptionGatewayPlaintext,
+            b"encryption.gateway-bounced" => MetricType::EncryptionGatewayBounced,
+            b"encryption.key-lookup" => MetricType::EncryptionKeyLookup,
+            b"encryption.key-harvested" => MetricType::EncryptionKeyHarvested,
+            b"encryption.key-change" => MetricType::EncryptionKeyChange,
+            b"encryption.crl-fetch-failed" => MetricType::EncryptionCrlFetchFailed,
+            b"encryption.dnssec-bogus" => MetricType::EncryptionDnssecBogus,
             b"eval.error" => MetricType::EvalError,
             b"eval.directory-not-found" => MetricType::EvalDirectoryNotFound,
             b"eval.store-not-found" => MetricType::EvalStoreNotFound,
@@ -7934,6 +8169,7 @@ impl MetricType {
             b"store.pool-error" => MetricType::StorePoolError,
             b"store.data-corruption" => MetricType::StoreDataCorruption,
             b"store.decompress-error" => MetricType::StoreDecompressError,
+            b"store.decrypt-error" => MetricType::StoreDecryptError,
             b"store.deserialize-error" => MetricType::StoreDeserializeError,
             b"store.not-found" => MetricType::StoreNotFound,
             b"store.not-configured" => MetricType::StoreNotConfigured,
@@ -8083,6 +8319,8 @@ impl MetricType {
             MetricType::Dkim2HashMismatch => "dkim2.hash-mismatch",
             MetricType::Dkim2RecipeError => "dkim2.recipe-error",
             MetricType::Dkim2SigningFailed => "dkim2.signing-failed",
+            MetricType::Dkim2DsnNotAligned => "dkim2.dsn-not-aligned",
+            MetricType::Dkim2DsnPropagated => "dkim2.dsn-propagated",
             MetricType::DmarcPass => "dmarc.pass",
             MetricType::DmarcFail => "dmarc.fail",
             MetricType::DmarcPermError => "dmarc.perm-error",
@@ -8094,6 +8332,17 @@ impl MetricType {
             MetricType::DnsRecordLookupFailed => "dns.record-lookup-failed",
             MetricType::DnsRecordPropagationTimeout => "dns.record-propagation-timeout",
             MetricType::DomainCount => "domain.count",
+            MetricType::EncryptionKeyLookupTime => "encryption.key-lookup-time",
+            MetricType::EncryptionEncryptionSkipped => "encryption.encryption-skipped",
+            MetricType::EncryptionAtRestEncrypted => "encryption.at-rest-encrypted",
+            MetricType::EncryptionGatewayEncrypted => "encryption.gateway-encrypted",
+            MetricType::EncryptionGatewayPlaintext => "encryption.gateway-plaintext",
+            MetricType::EncryptionGatewayBounced => "encryption.gateway-bounced",
+            MetricType::EncryptionKeyLookup => "encryption.key-lookup",
+            MetricType::EncryptionKeyHarvested => "encryption.key-harvested",
+            MetricType::EncryptionKeyChange => "encryption.key-change",
+            MetricType::EncryptionCrlFetchFailed => "encryption.crl-fetch-failed",
+            MetricType::EncryptionDnssecBogus => "encryption.dnssec-bogus",
             MetricType::EvalError => "eval.error",
             MetricType::EvalDirectoryNotFound => "eval.directory-not-found",
             MetricType::EvalStoreNotFound => "eval.store-not-found",
@@ -8355,6 +8604,7 @@ impl MetricType {
             MetricType::StorePoolError => "store.pool-error",
             MetricType::StoreDataCorruption => "store.data-corruption",
             MetricType::StoreDecompressError => "store.decompress-error",
+            MetricType::StoreDecryptError => "store.decrypt-error",
             MetricType::StoreDeserializeError => "store.deserialize-error",
             MetricType::StoreNotFound => "store.not-found",
             MetricType::StoreNotConfigured => "store.not-configured",
@@ -8513,6 +8763,8 @@ impl MetricType {
             MetricType::Dkim2HashMismatch => 373,
             MetricType::Dkim2RecipeError => 374,
             MetricType::Dkim2SigningFailed => 382,
+            MetricType::Dkim2DsnNotAligned => 392,
+            MetricType::Dkim2DsnPropagated => 393,
             MetricType::DmarcPass => 90,
             MetricType::DmarcFail => 91,
             MetricType::DmarcPermError => 92,
@@ -8524,6 +8776,17 @@ impl MetricType {
             MetricType::DnsRecordLookupFailed => 37,
             MetricType::DnsRecordPropagationTimeout => 38,
             MetricType::DomainCount => 26,
+            MetricType::EncryptionKeyLookupTime => 397,
+            MetricType::EncryptionEncryptionSkipped => 385,
+            MetricType::EncryptionAtRestEncrypted => 388,
+            MetricType::EncryptionGatewayEncrypted => 386,
+            MetricType::EncryptionGatewayPlaintext => 387,
+            MetricType::EncryptionGatewayBounced => 389,
+            MetricType::EncryptionKeyLookup => 390,
+            MetricType::EncryptionKeyHarvested => 391,
+            MetricType::EncryptionKeyChange => 394,
+            MetricType::EncryptionCrlFetchFailed => 395,
+            MetricType::EncryptionDnssecBogus => 396,
             MetricType::EvalError => 95,
             MetricType::EvalDirectoryNotFound => 96,
             MetricType::EvalStoreNotFound => 97,
@@ -8775,6 +9038,7 @@ impl MetricType {
             MetricType::StorePoolError => 296,
             MetricType::StoreDataCorruption => 297,
             MetricType::StoreDecompressError => 298,
+            MetricType::StoreDecryptError => 398,
             MetricType::StoreDeserializeError => 299,
             MetricType::StoreNotFound => 300,
             MetricType::StoreNotConfigured => 301,
@@ -8931,6 +9195,8 @@ impl MetricType {
             373 => Some(MetricType::Dkim2HashMismatch),
             374 => Some(MetricType::Dkim2RecipeError),
             382 => Some(MetricType::Dkim2SigningFailed),
+            392 => Some(MetricType::Dkim2DsnNotAligned),
+            393 => Some(MetricType::Dkim2DsnPropagated),
             90 => Some(MetricType::DmarcPass),
             91 => Some(MetricType::DmarcFail),
             92 => Some(MetricType::DmarcPermError),
@@ -8942,6 +9208,17 @@ impl MetricType {
             37 => Some(MetricType::DnsRecordLookupFailed),
             38 => Some(MetricType::DnsRecordPropagationTimeout),
             26 => Some(MetricType::DomainCount),
+            397 => Some(MetricType::EncryptionKeyLookupTime),
+            385 => Some(MetricType::EncryptionEncryptionSkipped),
+            388 => Some(MetricType::EncryptionAtRestEncrypted),
+            386 => Some(MetricType::EncryptionGatewayEncrypted),
+            387 => Some(MetricType::EncryptionGatewayPlaintext),
+            389 => Some(MetricType::EncryptionGatewayBounced),
+            390 => Some(MetricType::EncryptionKeyLookup),
+            391 => Some(MetricType::EncryptionKeyHarvested),
+            394 => Some(MetricType::EncryptionKeyChange),
+            395 => Some(MetricType::EncryptionCrlFetchFailed),
+            396 => Some(MetricType::EncryptionDnssecBogus),
             95 => Some(MetricType::EvalError),
             96 => Some(MetricType::EvalDirectoryNotFound),
             97 => Some(MetricType::EvalStoreNotFound),
@@ -9193,6 +9470,7 @@ impl MetricType {
             296 => Some(MetricType::StorePoolError),
             297 => Some(MetricType::StoreDataCorruption),
             298 => Some(MetricType::StoreDecompressError),
+            398 => Some(MetricType::StoreDecryptError),
             299 => Some(MetricType::StoreDeserializeError),
             300 => Some(MetricType::StoreNotFound),
             301 => Some(MetricType::StoreNotConfigured),
@@ -9337,6 +9615,8 @@ impl MetricType {
             MetricType::Dkim2HashMismatch => 641,
             MetricType::Dkim2RecipeError => 642,
             MetricType::Dkim2SigningFailed => 650,
+            MetricType::Dkim2DsnNotAligned => 666,
+            MetricType::Dkim2DsnPropagated => 667,
             MetricType::DmarcPass => 118,
             MetricType::DmarcFail => 116,
             MetricType::DmarcPermError => 119,
@@ -9346,6 +9626,16 @@ impl MetricType {
             MetricType::DnsRecordDeletionFailed => 10,
             MetricType::DnsRecordLookupFailed => 11,
             MetricType::DnsRecordPropagationTimeout => 14,
+            MetricType::EncryptionEncryptionSkipped => 655,
+            MetricType::EncryptionAtRestEncrypted => 658,
+            MetricType::EncryptionGatewayEncrypted => 656,
+            MetricType::EncryptionGatewayPlaintext => 657,
+            MetricType::EncryptionGatewayBounced => 659,
+            MetricType::EncryptionKeyLookup => 660,
+            MetricType::EncryptionKeyHarvested => 661,
+            MetricType::EncryptionKeyChange => 662,
+            MetricType::EncryptionCrlFetchFailed => 663,
+            MetricType::EncryptionDnssecBogus => 664,
             MetricType::EvalError => 122,
             MetricType::EvalDirectoryNotFound => 121,
             MetricType::EvalStoreNotFound => 124,
@@ -9564,6 +9854,7 @@ impl MetricType {
             MetricType::StorePoolError => 509,
             MetricType::StoreDataCorruption => 494,
             MetricType::StoreDecompressError => 497,
+            MetricType::StoreDecryptError => 668,
             MetricType::StoreDeserializeError => 498,
             MetricType::StoreNotFound => 507,
             MetricType::StoreNotConfigured => 506,
@@ -9724,6 +10015,8 @@ impl MetricType {
             MetricType::Dkim2HashMismatch => "DKIM2 hash mismatch",
             MetricType::Dkim2RecipeError => "DKIM2 recipe error",
             MetricType::Dkim2SigningFailed => "DKIM2 signing failed",
+            MetricType::Dkim2DsnNotAligned => "DKIM2 DSN signer not aligned",
+            MetricType::Dkim2DsnPropagated => "DKIM2 DSN propagated",
             MetricType::DmarcPass => "DMARC check passed",
             MetricType::DmarcFail => "DMARC check failed",
             MetricType::DmarcPermError => "DMARC permanent error",
@@ -9735,6 +10028,17 @@ impl MetricType {
             MetricType::DnsRecordLookupFailed => "DNS record lookup failed",
             MetricType::DnsRecordPropagationTimeout => "DNS record propagation timeout",
             MetricType::DomainCount => "Total number of domains",
+            MetricType::EncryptionKeyLookupTime => "Recipient key discovery lookup time",
+            MetricType::EncryptionEncryptionSkipped => "Encryption skipped",
+            MetricType::EncryptionAtRestEncrypted => "Message encrypted at rest",
+            MetricType::EncryptionGatewayEncrypted => "Gateway encrypted message",
+            MetricType::EncryptionGatewayPlaintext => "Gateway sent plaintext",
+            MetricType::EncryptionGatewayBounced => "Gateway bounced message",
+            MetricType::EncryptionKeyLookup => "Key lookup",
+            MetricType::EncryptionKeyHarvested => "Key harvested",
+            MetricType::EncryptionKeyChange => "Key change pending approval",
+            MetricType::EncryptionCrlFetchFailed => "CRL download failed",
+            MetricType::EncryptionDnssecBogus => "DNSSEC validation failed",
             MetricType::EvalError => "Expression evaluation error",
             MetricType::EvalDirectoryNotFound => "Directory not found while evaluating expression",
             MetricType::EvalStoreNotFound => "Store not found while evaluating expression",
@@ -10002,6 +10306,7 @@ impl MetricType {
             MetricType::StorePoolError => "Connection pool error",
             MetricType::StoreDataCorruption => "Data corruption detected",
             MetricType::StoreDecompressError => "Decompression error",
+            MetricType::StoreDecryptError => "Decryption error",
             MetricType::StoreDeserializeError => "Deserialization error",
             MetricType::StoreNotFound => "Record not found in database",
             MetricType::StoreNotConfigured => "Store not configured",
@@ -10146,6 +10451,8 @@ impl MetricType {
             | MetricType::Dkim2HashMismatch
             | MetricType::Dkim2RecipeError
             | MetricType::Dkim2SigningFailed
+            | MetricType::Dkim2DsnNotAligned
+            | MetricType::Dkim2DsnPropagated
             | MetricType::DmarcPass
             | MetricType::DmarcFail
             | MetricType::DmarcPermError
@@ -10155,6 +10462,16 @@ impl MetricType {
             | MetricType::DnsRecordDeletionFailed
             | MetricType::DnsRecordLookupFailed
             | MetricType::DnsRecordPropagationTimeout
+            | MetricType::EncryptionEncryptionSkipped
+            | MetricType::EncryptionAtRestEncrypted
+            | MetricType::EncryptionGatewayEncrypted
+            | MetricType::EncryptionGatewayPlaintext
+            | MetricType::EncryptionGatewayBounced
+            | MetricType::EncryptionKeyLookup
+            | MetricType::EncryptionKeyHarvested
+            | MetricType::EncryptionKeyChange
+            | MetricType::EncryptionCrlFetchFailed
+            | MetricType::EncryptionDnssecBogus
             | MetricType::EvalError
             | MetricType::EvalDirectoryNotFound
             | MetricType::EvalStoreNotFound
@@ -10367,6 +10684,7 @@ impl MetricType {
             | MetricType::StorePoolError
             | MetricType::StoreDataCorruption
             | MetricType::StoreDecompressError
+            | MetricType::StoreDecryptError
             | MetricType::StoreDeserializeError
             | MetricType::StoreNotFound
             | MetricType::StoreNotConfigured
@@ -10422,6 +10740,7 @@ impl MetricType {
             MetricType::DeliveryTotalTime
             | MetricType::DeliveryAttemptTime
             | MetricType::DnsLookupTime
+            | MetricType::EncryptionKeyLookupTime
             | MetricType::HttpRequestTime
             | MetricType::ImapRequestTime
             | MetricType::MessageIngestTime
@@ -10472,6 +10791,7 @@ impl MetricType {
             MetricType::DeliveryActiveConnections => "stalwart.delivery.active_connections",
             MetricType::DnsLookupTime => "stalwart.dns.lookup_time",
             MetricType::DomainCount => "stalwart.domains",
+            MetricType::EncryptionKeyLookupTime => "stalwart.encryption.key_lookup_time",
             MetricType::HttpRequestTime => "stalwart.http.request_time",
             MetricType::HttpActiveConnections => "stalwart.http.active_connections",
             MetricType::ImapRequestTime => "stalwart.imap.request_time",
@@ -10533,6 +10853,7 @@ impl MetricType {
             MetricType::DeliveryActiveConnections => "{connection}",
             MetricType::DnsLookupTime => "s",
             MetricType::DomainCount => "{domain}",
+            MetricType::EncryptionKeyLookupTime => "s",
             MetricType::HttpRequestTime => "s",
             MetricType::HttpActiveConnections => "{connection}",
             MetricType::ImapRequestTime => "s",
@@ -10594,6 +10915,7 @@ impl MetricType {
             MetricType::DeliveryActiveConnections => "stalwart_delivery_active_connections",
             MetricType::DnsLookupTime => "stalwart_dns_lookup_time_seconds",
             MetricType::DomainCount => "stalwart_domains",
+            MetricType::EncryptionKeyLookupTime => "stalwart_encryption_key_lookup_time_seconds",
             MetricType::HttpRequestTime => "stalwart_http_request_time_seconds",
             MetricType::HttpActiveConnections => "stalwart_http_active_connections",
             MetricType::ImapRequestTime => "stalwart_imap_request_time_seconds",
@@ -10655,6 +10977,7 @@ impl MetricType {
             MetricType::DeliveryActiveConnections => "",
             MetricType::DnsLookupTime => "seconds",
             MetricType::DomainCount => "",
+            MetricType::EncryptionKeyLookupTime => "seconds",
             MetricType::HttpRequestTime => "seconds",
             MetricType::HttpActiveConnections => "",
             MetricType::ImapRequestTime => "seconds",
@@ -10810,6 +11133,8 @@ impl MetricType {
             MetricType::Dkim2HashMismatch,
             MetricType::Dkim2RecipeError,
             MetricType::Dkim2SigningFailed,
+            MetricType::Dkim2DsnNotAligned,
+            MetricType::Dkim2DsnPropagated,
             MetricType::DmarcPass,
             MetricType::DmarcFail,
             MetricType::DmarcPermError,
@@ -10821,6 +11146,17 @@ impl MetricType {
             MetricType::DnsRecordLookupFailed,
             MetricType::DnsRecordPropagationTimeout,
             MetricType::DomainCount,
+            MetricType::EncryptionKeyLookupTime,
+            MetricType::EncryptionEncryptionSkipped,
+            MetricType::EncryptionAtRestEncrypted,
+            MetricType::EncryptionGatewayEncrypted,
+            MetricType::EncryptionGatewayPlaintext,
+            MetricType::EncryptionGatewayBounced,
+            MetricType::EncryptionKeyLookup,
+            MetricType::EncryptionKeyHarvested,
+            MetricType::EncryptionKeyChange,
+            MetricType::EncryptionCrlFetchFailed,
+            MetricType::EncryptionDnssecBogus,
             MetricType::EvalError,
             MetricType::EvalDirectoryNotFound,
             MetricType::EvalStoreNotFound,
@@ -11072,6 +11408,7 @@ impl MetricType {
             MetricType::StorePoolError,
             MetricType::StoreDataCorruption,
             MetricType::StoreDecompressError,
+            MetricType::StoreDecryptError,
             MetricType::StoreDeserializeError,
             MetricType::StoreNotFound,
             MetricType::StoreNotConfigured,
@@ -11219,6 +11556,7 @@ impl Key {
             b"probability" => Key::Probability,
             b"confidence" => Key::Confidence,
             b"tier" => Key::Tier,
+            b"fingerprint" => Key::Fingerprint,
         }
         .copied()
     }
@@ -11316,6 +11654,7 @@ impl Key {
             b"cipher" => Key::Cipher,
             b"resourceUid" => Key::ResourceUid,
             b"script" => Key::Script,
+            b"fingerprint" => Key::Fingerprint,
         }
         .copied()
     }
@@ -11431,6 +11770,7 @@ impl Key {
             #[cfg(feature = "enterprise")]
             Key::Tier => "tier",
             // SPDX-SnippetEnd
+            Key::Fingerprint => "fingerprint",
         }
     }
 
@@ -11549,11 +11889,12 @@ impl Key {
             #[cfg(feature = "enterprise")]
             95 => Some(Key::Tier),
             // SPDX-SnippetEnd
+            96 => Some(Key::Fingerprint),
             _ => None,
         }
     }
 
-    pub const COUNT: usize = 96;
+    pub const COUNT: usize = 97;
 }
 
 impl serde::Serialize for Key {

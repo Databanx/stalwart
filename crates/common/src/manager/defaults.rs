@@ -12,10 +12,10 @@ use aws_lc_rs::{
 use registry::{
     schema::{
         enums::*,
-        prelude::{ObjectType, SocketAddr},
+        prelude::{Id, Object, ObjectType, SocketAddr},
         structs::*,
     },
-    types::{duration::Duration, error::Error, list::List, map::Map},
+    types::{EnumImpl, duration::Duration, error::Error, id::ObjectId, list::List, map::Map},
 };
 use std::str::FromStr;
 use store::{
@@ -370,32 +370,33 @@ async fn insert_safe_defaults(bp: &mut Bootstrap) -> trc::Result<()> {
 
     if bp.registry.count_object(ObjectType::Role).await? == 0 {
         let permissions = DefaultPermissions::default();
-        let mut roles = Vec::with_capacity(4);
-        roles.push(Role {
-            description: "User".into(),
-            enabled_permissions: Map::new(permissions.user),
-            ..Default::default()
-        });
-        roles.push(Role {
-            description: "Group".into(),
-            enabled_permissions: Map::new(permissions.group),
-            ..Default::default()
-        });
-        // SPDX-SnippetBegin
-        // SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
-        // SPDX-License-Identifier: LicenseRef-SEL
-        #[cfg(feature = "enterprise")]
-        roles.push(Role {
-            description: "Tenant Administrator".into(),
-            enabled_permissions: Map::new(permissions.tenant),
-            ..Default::default()
-        });
-        // SPDX-SnippetEnd
-        roles.push(Role {
-            description: "System Administrator".into(),
-            enabled_permissions: Map::new(permissions.superuser),
-            ..Default::default()
-        });
+        let roles = [
+            Role {
+                description: "User".into(),
+                enabled_permissions: Map::new(permissions.user),
+                ..Default::default()
+            },
+            Role {
+                description: "Group".into(),
+                enabled_permissions: Map::new(permissions.group),
+                ..Default::default()
+            },
+            // SPDX-SnippetBegin
+            // SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
+            // SPDX-License-Identifier: LicenseRef-SEL
+            #[cfg(feature = "enterprise")]
+            Role {
+                description: "Tenant Administrator".into(),
+                enabled_permissions: Map::new(permissions.tenant),
+                ..Default::default()
+            },
+            // SPDX-SnippetEnd
+            Role {
+                description: "System Administrator".into(),
+                enabled_permissions: Map::new(permissions.superuser),
+                ..Default::default()
+            },
+        ];
         let num_roles = roles.len();
         let mut role_ids = Vec::with_capacity(num_roles);
 
@@ -415,30 +416,55 @@ async fn insert_safe_defaults(bp: &mut Bootstrap) -> trc::Result<()> {
             }
         }
 
-        if bp.registry.count_object(ObjectType::Authentication).await? == 0
-            && role_ids.len() == num_roles
-        {
-            bp.registry
-                .write(RegistryWrite::insert(
-                    &Authentication {
-                        default_user_role_ids: Map::new(vec![role_ids[0]]),
-                        default_group_role_ids: Map::new(vec![role_ids[1]]),
-                        // SPDX-SnippetBegin
-                        // SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
-                        // SPDX-License-Identifier: LicenseRef-SEL
-                        #[cfg(feature = "enterprise")]
-                        default_tenant_role_ids: Map::new(vec![role_ids[2], role_ids[0]]),
-                        // SPDX-SnippetEnd
-                        default_admin_role_ids: Map::new(vec![
-                            role_ids[num_roles - 1],
-                            role_ids[0],
-                        ]),
-                        ..Default::default()
-                    }
-                    .into(),
-                ))
-                .await?;
+        if role_ids.len() == num_roles {
+            let object_id = ObjectType::Authentication.singleton();
+            let old_object = bp.registry.get(object_id).await?;
+            let mut authentication = old_object
+                .as_ref()
+                .map(|old_object| Authentication::from(old_object.clone()))
+                .unwrap_or_default();
+            authentication.default_user_role_ids = Map::new(vec![role_ids[0]]);
+            authentication.default_group_role_ids = Map::new(vec![role_ids[1]]);
+            // SPDX-SnippetBegin
+            // SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
+            // SPDX-License-Identifier: LicenseRef-SEL
+            #[cfg(feature = "enterprise")]
+            {
+                authentication.default_tenant_role_ids = Map::new(vec![role_ids[2], role_ids[0]]);
+            }
+            // SPDX-SnippetEnd
+            authentication.default_admin_role_ids =
+                Map::new(vec![role_ids[num_roles - 1], role_ids[0]]);
+
+            let result = match &old_object {
+                Some(old_object) => {
+                    let new_object = Object {
+                        inner: authentication.into(),
+                        revision: old_object.revision,
+                    };
+                    bp.registry
+                        .write(RegistryWrite::update(
+                            Id::singleton(),
+                            &new_object,
+                            old_object,
+                        ))
+                        .await?
+                }
+                None => {
+                    bp.registry
+                        .write(RegistryWrite::insert(&authentication.into()))
+                        .await?
+                }
+            };
+            if !matches!(result, RegistryWriteResult::Success(_)) {
+                bp.build_error(
+                    object_id,
+                    format!("Failed to assign default roles: {result}"),
+                );
+            }
         }
+    } else if bp.registry.update_role_permissions() {
+        update_role_permissions(bp).await?;
     }
 
     if bp
@@ -545,6 +571,95 @@ async fn insert_safe_defaults(bp: &mut Bootstrap) -> trc::Result<()> {
                 status: TaskStatus::now(),
             }));
             bp.data_store.write_batch(&mut batch).await?;
+        }
+    }
+
+    Ok(())
+}
+
+const V1_0_0_LAST_PERMISSION: Permission = Permission::SysWebHookQuery;
+
+async fn update_role_permissions(bp: &mut Bootstrap) -> trc::Result<()> {
+    let authentication = bp.setting::<Authentication>().await?;
+    let permissions = DefaultPermissions::default();
+    let mut roles: Vec<(Id, &[Permission])> = Vec::new();
+
+    for (role_ids, defaults) in [
+        (
+            authentication.default_user_role_ids.as_slice(),
+            permissions.user.as_slice(),
+        ),
+        (
+            authentication.default_group_role_ids.as_slice(),
+            permissions.group.as_slice(),
+        ),
+        // SPDX-SnippetBegin
+        // SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
+        // SPDX-License-Identifier: LicenseRef-SEL
+        #[cfg(feature = "enterprise")]
+        (
+            authentication.default_tenant_role_ids.as_slice(),
+            permissions.tenant.as_slice(),
+        ),
+        // SPDX-SnippetEnd
+        (
+            authentication.default_admin_role_ids.as_slice(),
+            permissions.superuser.as_slice(),
+        ),
+    ] {
+        for role_id in role_ids {
+            if !roles.iter().any(|(id, _)| id == role_id) {
+                roles.push((*role_id, defaults));
+            }
+        }
+    }
+
+    let baseline = V1_0_0_LAST_PERMISSION.to_id();
+    for (role_id, defaults) in roles {
+        let object_id = ObjectId::new(ObjectType::Role, role_id);
+        let Some(old_object) = bp.registry.get(object_id).await? else {
+            continue;
+        };
+        let mut role = Role::from(old_object.clone());
+        let mut added = Vec::new();
+        for permission in defaults {
+            if permission.to_id() > baseline
+                && !role.enabled_permissions.contains(permission)
+                && !role.disabled_permissions.contains(permission)
+            {
+                role.enabled_permissions.push_unchecked(*permission);
+                added.push(permission.as_str());
+            }
+        }
+        if added.is_empty() {
+            continue;
+        }
+
+        let description = role.description.clone();
+        let new_object = Object {
+            inner: role.into(),
+            revision: old_object.revision,
+        };
+        match bp
+            .registry
+            .write(RegistryWrite::update(role_id, &new_object, &old_object))
+            .await?
+        {
+            RegistryWriteResult::Success(_) => {
+                trc::event!(
+                    Server(trc::ServerEvent::Startup),
+                    Details = "Added new permissions to default role",
+                    Id = role_id.id(),
+                    Name = description,
+                    Contents = added
+                );
+            }
+            err => {
+                bp.build_error(
+                    object_id,
+                    format!("Failed to add new permissions to default role: {err}"),
+                );
+            }
         }
     }
 

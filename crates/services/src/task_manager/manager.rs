@@ -507,7 +507,7 @@ fn is_enabled(task_type: TaskType, roles: &ClusterRoles) -> bool {
         #[cfg(feature = "enterprise")]
         TaskType::TenantMaintenance => roles.account_maintenance,
         // SPDX-SnippetEnd
-        TaskType::StoreMaintenance => roles.store_maintenance,
+        TaskType::StoreMaintenance | TaskType::BlobRecode => roles.store_maintenance,
         TaskType::SpamFilterMaintenance => roles.spam_training,
         TaskType::CalendarAlarmEmail
         | TaskType::CalendarAlarmNotification
@@ -519,7 +519,8 @@ fn is_enabled(task_type: TaskType, roles: &ClusterRoles) -> bool {
         | TaskType::TlsReportWindow
         | TaskType::AcmeRenewal
         | TaskType::DkimManagement
-        | TaskType::DnsManagement => true,
+        | TaskType::DnsManagement
+        | TaskType::ExternalPublicKeyMaintenance => true,
         // SPDX-SnippetBegin
         // SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
         // SPDX-License-Identifier: LicenseRef-SEL

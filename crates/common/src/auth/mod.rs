@@ -8,7 +8,7 @@ use crate::{
     auth::{active_script::ActiveScriptSlot, oauth::scope::OAuthScopes},
     expr::if_block::IfBlock,
     network::limiter::AccountLimits,
-    storage::ObjectQuota,
+    storage::{ObjectQuota, encryption::AccountEncryption},
 };
 // SPDX-SnippetBegin
 // SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
@@ -38,6 +38,7 @@ pub mod active_script;
 pub mod authentication;
 pub mod credential;
 pub mod oauth;
+pub mod passkey;
 pub mod permissions;
 pub mod rate_limit;
 pub mod sasl;
@@ -115,7 +116,7 @@ pub struct AccountCache {
 #[derive(Debug, Clone, Default)]
 pub struct AccountStorage {
     pub quota_objects: Option<ObjectQuota>,
-    pub encryption_key: Option<EncryptionKeys>,
+    pub encryption: Option<Arc<AccountEncryption>>,
 }
 
 const _: () = assert!(size_of::<AccountCache>() <= 112);
@@ -123,28 +124,18 @@ const _: () = assert!(size_of::<AccountCache>() <= 112);
 impl AccountStorage {
     pub fn boxed(
         quota_objects: Option<ObjectQuota>,
-        encryption_key: Option<EncryptionKeys>,
+        encryption: Option<Arc<AccountEncryption>>,
     ) -> Option<Box<Self>> {
-        (quota_objects.is_some() || encryption_key.is_some()).then(|| {
+        (quota_objects.is_some() || encryption.is_some()).then(|| {
             Box::new(AccountStorage {
                 quota_objects,
-                encryption_key,
+                encryption,
             })
         })
     }
 }
 
-pub type EncryptionKeys = Box<[Box<[u8]>]>;
-
 pub const ACCOUNT_IS_USER: u64 = 1;
-pub const ACCOUNT_FLAG_ENCRYPT_TRAIN_SPAM_FILTER: u64 = 1 << 1;
-pub const ACCOUNT_FLAG_ENCRYPT_METHOD_SMIME: u64 = 1 << 2;
-pub const ACCOUNT_FLAG_ENCRYPT_METHOD_PGP: u64 = 1 << 3;
-pub const ACCOUNT_FLAG_ENCRYPT_ALGO_AES256: u64 = 1 << 4;
-pub const ACCOUNT_FLAG_ENCRYPT_ALGO_AES128: u64 = 1 << 5;
-pub const ACCOUNT_FLAG_ENCRYPT_APPEND: u64 = 1 << 6;
-pub const ACCOUNT_FLAG_ENCRYPT_ALGO_AES256_GCM: u64 = 1 << 7;
-pub const ACCOUNT_FLAG_ENCRYPT_ALGO_CHACHA20_POLY1305: u64 = 1 << 8;
 
 #[derive(Debug, Clone)]
 pub struct RoleCache {
@@ -187,20 +178,8 @@ pub struct AccessToken {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenScope {
-    Grant {
-        grant_id: u64,
-        scopes: OAuthScopes,
-        client: GrantClient,
-    },
-    External {
-        scopes: OAuthScopes,
-    },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GrantClient {
-    FirstParty,
-    ThirdParty,
+    Grant { grant_id: u64, scopes: OAuthScopes },
+    External { scopes: OAuthScopes },
 }
 
 const _: () = assert!(size_of::<TokenScope>() <= 16);
@@ -338,11 +317,7 @@ impl CacheItemWeight for AccountCache {
 impl CacheItemWeight for AccountStorage {
     fn weight(&self) -> u64 {
         std::mem::size_of::<AccountStorage>() as u64
-            + self.encryption_key.as_ref().map_or(0, |keys| {
-                keys.iter()
-                    .map(|k| k.len() as u64 + std::mem::size_of::<Box<[u8]>>() as u64)
-                    .sum::<u64>()
-            })
+            + self.encryption.as_ref().map_or(0, |e| e.weight())
     }
 }
 

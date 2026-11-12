@@ -78,18 +78,30 @@ impl Server {
                 })
         }) {
             Ok(authenticated) => Ok(authenticated),
-            Err(err) => {
-                // Random delay to mitigate user enumeration attacks
-                #[cfg(not(stalwart_tests))]
-                {
-                    use store::rand::{self, RngExt};
+            Err(err) => Err(self
+                .reject_authentication(err, req.remote_ip, req.username())
+                .await),
+        }
+    }
 
-                    let delay = rand::rng().random_range(50..500);
-                    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
-                }
+    pub(crate) async fn reject_authentication(
+        &self,
+        err: trc::Error,
+        remote_ip: IpAddr,
+        username: Option<&str>,
+    ) -> trc::Error {
+        self.delay_failed_authentication().await;
+        self.auth_failure(err, remote_ip, username).await
+    }
 
-                Err(self.auth_failure(err, req.remote_ip, req.username()).await)
-            }
+    pub(crate) async fn delay_failed_authentication(&self) {
+        // Random delay to mitigate user enumeration attacks
+        #[cfg(not(stalwart_tests))]
+        {
+            use store::rand::{self, RngExt};
+
+            let delay = rand::rng().random_range(50..500);
+            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
         }
     }
 
@@ -747,12 +759,17 @@ impl Server {
             return Ok(self.get_default_directory());
         };
 
-        match (claims.domain(), claims.iss.as_deref()) {
-            (Some(domain_name), _) => self.get_directory_for_domain(domain_name).await,
-            (None, Some(issuer)) => Ok(self
-                .get_directory_for_issuer(issuer)
-                .or_else(|| self.get_default_directory())),
-            (None, None) => Ok(self.get_default_directory()),
+        if let Some(directory) = claims
+            .iss
+            .as_deref()
+            .and_then(|issuer| self.get_directory_for_issuer(issuer))
+        {
+            return Ok(Some(directory));
+        }
+
+        match claims.domain() {
+            Some(domain_name) => self.get_directory_for_domain(domain_name).await,
+            None => Ok(self.get_default_directory()),
         }
     }
 

@@ -304,7 +304,11 @@ impl Default for DefaultPermissions {
                     default.superuser.push(permission);
                 }
                 // SPDX-SnippetEnd
-                Permission::FetchAnyBlob | Permission::LiveDeliveryTest => {
+                Permission::SysSymmetricKeyDestroy => {}
+                Permission::FetchAnyBlob => {
+                    default.superuser.push(permission);
+                }
+                Permission::LiveDeliveryTest => {
                     default.superuser.push(permission);
                     // SPDX-SnippetBegin
                     // SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
@@ -337,6 +341,7 @@ impl Default for DefaultPermissions {
                     } else if name.starts_with("sysAccountPassword")
                         || name.starts_with("sysApiKey")
                         || name.starts_with("sysAppPassword")
+                        || name.starts_with("sysPasskey")
                         || name.starts_with("sysOAuthGrant")
                     {
                         default.user.push(permission);

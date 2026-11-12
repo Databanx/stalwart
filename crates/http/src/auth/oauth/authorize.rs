@@ -307,7 +307,7 @@ impl Authorization {
 
     pub fn consent_scopes(&self) -> OAuthScopes {
         if self.client.allowed_scopes().is_some() {
-            OAuthScopes::parse(self.scope.as_deref().unwrap_or_default()).interoperable()
+            OAuthScopes::parse(self.scope.as_deref().unwrap_or_default()).grantable()
         } else {
             OAuthScopes::NONE
         }
@@ -335,8 +335,11 @@ pub fn granted_scope(
     let mut scope = String::new();
     for item in requested.unwrap_or_default().split_ascii_whitespace() {
         if let Some(allowed) = allowed {
-            let scope = OAuthScopes::from_name(item);
-            if scope.is_empty() || !allowed.contains(scope) {
+            let known = OAuthScopes::from_name(item);
+            if known.is_empty() {
+                continue;
+            }
+            if !allowed.contains(known) {
                 return Err(ErrorType::InvalidScope);
             }
         }
@@ -377,6 +380,9 @@ fn scope_label(scope: &str) -> Option<&'static str> {
         "urn:ietf:params:oauth:scope:contacts" => "Read and manage your contacts",
         "urn:ietf:params:oauth:scope:calendars" => "Read and manage your calendars",
         "urn:ietf:params:oauth:scope:files" => "Read and manage your files",
+        "urn:stalwart:oauth:scope:security" => "Manage your passwords, passkeys, 2FA, API keys and connected apps",
+        "urn:stalwart:oauth:scope:settings" => "Manage your account settings and encryption keys",
+        "urn:stalwart:oauth:scope:full" => LABEL_FULL_ACCESS,
     )
     .copied()
 }
